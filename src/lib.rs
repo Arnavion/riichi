@@ -1,3 +1,17 @@
+#![feature(
+	const_convert,
+	const_trait_impl,
+	control_flow_into_value,
+	generic_const_exprs,
+	iter_next_chunk,
+	maybe_uninit_array_assume_init,
+	maybe_uninit_fill,
+	trusted_len,
+)]
+#![expect(
+	incomplete_features, // For generic_const_exprs
+)]
+
 #![no_std]
 
 //! # To simulate a round
@@ -47,6 +61,8 @@
 //! ## Chinroutou
 //!
 //! ```rust
+//! # #![feature(generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! # #![deny(unused)]
 //! #
 //! # use riichi::{
@@ -111,6 +127,8 @@
 //! ## Sanbaiman
 //!
 //! ```rust
+//! # #![feature(generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! # #![deny(unused)]
 //! #
 //! # use riichi::{
@@ -458,23 +476,25 @@ macro_rules! td {
 /// - `ankan` - closed quad formed by kan
 /// - `minkan` - open quad formed by kan
 ///
-/// The expansion is usable as an expr.
+/// The expansion is usable as both an expr and a pat.
 ///
 /// # Examples
 ///
 /// ```rust
+/// # #![feature(generic_const_exprs)]
+/// # #![expect(incomplete_features)]
 /// # #![deny(unused)]
 /// #
 /// # use riichi::{Hand, HandMeld, make_hand, t};
 /// #
 /// // Hand containing 2334488s555z and an ankan of EEEE
 /// let hand = make_hand!(2s 3s 3s 4s 4s 8s 8s Wh Wh Wh { ankan E E E E });
-/// assert_eq!(hand, Hand(
-///     t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh].into(),
+/// assert!(matches!(hand, Hand(
+///     t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh],
 ///     [
 ///         HandMeld::Ankan(t![E, E, E, E]),
-///     ].into(),
-/// ));
+///     ],
+/// )));
 /// ```
 #[macro_export]
 macro_rules! make_hand {
@@ -495,51 +515,51 @@ macro_rules! make_hand {
 	};
 
 	($t1:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U1, $crate::generic_array::typenum::U4>(
-			$crate::t![$t1,].into(),
+		$crate::Hand::<1, 4>(
+			$crate::t![$t1,],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U4, $crate::generic_array::typenum::U3>(
-			$crate::t![$t1, $t2, $t3, $t4].into(),
+		$crate::Hand::<4, 3>(
+			$crate::t![$t1, $t2, $t3, $t4],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U7, $crate::generic_array::typenum::U2>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7].into(),
+		$crate::Hand::<7, 2>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U10, $crate::generic_array::typenum::U1>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10].into(),
+		$crate::Hand::<10, 1>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10],
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U13, $crate::generic_array::typenum::U0>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into(),
-			[].into(),
+		$crate::Hand::<13, 0>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13],
+			[],
 		)
 	};
 }
@@ -886,6 +906,3 @@ pub enum TsumoOrRon {
 	/// The tile was taken from another player's discard or shouminkan.
 	Ron,
 }
-
-// Used by `make_hand!` expansion.
-pub use generic_array;

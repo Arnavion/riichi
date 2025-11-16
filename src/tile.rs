@@ -1,5 +1,3 @@
-use generic_array::typenum;
-
 use crate::{
 	ArrayVec,
 	GameType,
@@ -259,11 +257,11 @@ impl Tile {
 	///
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
-	pub fn parse_run(s: &str) -> Result<(ArrayVec<Self, typenum::U13>, Option<HandMeldType>), ()> {
+	pub fn parse_run(s: &str) -> Result<(ArrayVec<Self, 13>, Option<HandMeldType>), ()> {
 		let mut result = ArrayVec::new();
 		let mut result_type = None;
 
-		let mut current_run = ArrayVec::<_, typenum::U13>::new();
+		let mut current_run = ArrayVec::<_, 13>::new();
 
 		for b in s.as_bytes() {
 			match b {
@@ -421,14 +419,6 @@ impl Tile {
 			t!(1m | 9m | 1p | 9p | 1s | 9s | E | S | W | N | Wh | G | R) => false,
 		}
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTile>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTile) -> Self {
-		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
-		//
-		// Tested exhaustively in the `number_tile_as_ref` test.
-		unsafe { *<*const _>::cast(&raw const t) }
-	}
 }
 
 impl core::fmt::Debug for Tile {
@@ -481,19 +471,19 @@ impl core::fmt::Display for Tile {
 	}
 }
 
-impl From<NumberTile> for Tile {
+const impl From<NumberTile> for Tile {
 	fn from(t: NumberTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<WindTile> for Tile {
+const impl From<WindTile> for Tile {
 	fn from(t: WindTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<DragonTile> for Tile {
+const impl From<DragonTile> for Tile {
 	fn from(t: DragonTile) -> Self {
 		*t.as_ref()
 	}
@@ -674,42 +664,31 @@ impl NumberTile {
 		unsafe { core::mem::transmute::<u8, NumberSuit>((self as u8) / 10) }
 	}
 
-	pub(crate) fn shun_rest(self) -> Option<(Self, Self)> {
+	pub(crate) const fn shun_rest(self) -> Option<(Self, Self)> {
 		let NumberTileClassified { suit, number } = self.into();
-		let (number2, number3) = number.shun_rest()?;
+		let Some((number2, number3)) = number.shun_rest() else { return None; };
 		Some((
 			(NumberTileClassified { suit, number: number2 }).into(),
 			(NumberTileClassified { suit, number: number3 }).into(),
 		))
 	}
 
-	pub(crate) fn previous_in_sequence(self) -> Option<Self> {
-		let number = self.number().previous_in_sequence()?;
+	pub(crate) const fn previous_in_sequence(self) -> Option<Self> {
+		let Some(number) = self.number().previous_in_sequence() else { return None; };
 		Some((NumberTileClassified { suit: self.suit(), number }).into())
 	}
 
-	pub(crate) fn next_in_sequence(self) -> Option<Self> {
-		let number = self.number().next_in_sequence()?;
+	pub(crate) const fn next_in_sequence(self) -> Option<Self> {
+		let Some(number) = self.number().next_in_sequence() else { return None; };
 		Some((NumberTileClassified { suit: self.suit(), number }).into())
 	}
 
 	pub(crate) fn is_next_in_sequence(self, previous: Self) -> bool {
 		self.suit() == previous.suit() && Some(self.number()) == previous.number().next_in_sequence()
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTileClassified>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTileClassified) -> Self {
-		let NumberTileClassified { suit, number } = t;
-		// Using a `match` for every combination is safer but generates branches based on `suit`
-		// that add constant 10 or 20 instead of the multiplication by 10 (via `lea` / `sh*add`), so we do it manually.
-		//
-		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
-		// and tested exhaustively in the `number_tile_convert_classified` test.
-		unsafe { core::mem::transmute((suit as u8) * 10 + (number as u8)) }
-	}
 }
 
-impl AsRef<Tile> for NumberTile {
+const impl AsRef<Tile> for NumberTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
 		//
@@ -730,9 +709,15 @@ impl core::fmt::Display for NumberTile {
 	}
 }
 
-impl From<NumberTileClassified> for NumberTile {
+const impl From<NumberTileClassified> for NumberTile {
 	fn from(t: NumberTileClassified) -> Self {
-		Self::const_from(t)
+		let NumberTileClassified { suit, number } = t;
+		// Using a `match` for every combination is safer but generates branches based on `suit`
+		// that add constant 10 or 20 instead of the multiplication by 10 (via `lea` / `sh*add`), so we do it manually.
+		//
+		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
+		// and tested exhaustively in the `number_tile_convert_classified` test.
+		unsafe { core::mem::transmute((suit as u8) * 10 + (number as u8)) }
 	}
 }
 
@@ -763,7 +748,7 @@ impl PartialOrd for NumberTile {
 	}
 }
 
-impl TryFrom<Tile> for NumberTile {
+const impl TryFrom<Tile> for NumberTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -803,7 +788,7 @@ impl TryFrom<Tile> for NumberTile {
 	}
 }
 
-impl AsRef<Tile> for WindTile {
+const impl AsRef<Tile> for WindTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `WindTile` is valid for `Tile`.
 		//
@@ -833,7 +818,7 @@ impl core::str::FromStr for WindTile {
 	}
 }
 
-impl TryFrom<Tile> for WindTile {
+const impl TryFrom<Tile> for WindTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -847,7 +832,7 @@ impl TryFrom<Tile> for WindTile {
 	}
 }
 
-impl AsRef<Tile> for DragonTile {
+const impl AsRef<Tile> for DragonTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `DragonTile` is valid for `Tile`.
 		//
@@ -877,7 +862,7 @@ impl core::str::FromStr for DragonTile {
 	}
 }
 
-impl TryFrom<Tile> for DragonTile {
+const impl TryFrom<Tile> for DragonTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -890,7 +875,7 @@ impl TryFrom<Tile> for DragonTile {
 	}
 }
 
-impl From<NumberTile> for NumberTileClassified {
+const impl From<NumberTile> for NumberTileClassified {
 	fn from(t: NumberTile) -> Self {
 		Self { suit: t.suit(), number: t.number() }
 	}
@@ -915,7 +900,7 @@ impl core::fmt::Display for NumberSuit {
 impl Number {
 	pub const fn value(self) -> u8 {
 		let this = self as u8;
-		this + ((this < 5) as u8)
+		this + u8::from(this < 5)
 	}
 
 	const fn shun_rest(self) -> Option<(Self, Self)> {
@@ -928,8 +913,8 @@ impl Number {
 
 		// Micro-optimization: Using a `match` instead generates a LUT. Tested exhaustively in the `number_shun_rest` test.
 		let n = self as u8;
-		let next = n + 1 + ((n == 4) as u8);
-		let next_next = next + 1 + ((n == 3) as u8);
+		let next = n + 1 + u8::from(n == 4);
+		let next_next = next + 1 + u8::from(n == 3);
 
 		// TODO: rustc generates an additional `zext.b` etc to truncate `next` to u8, and no amount of `assert_unchecked()`s seem to be able to
 		// convince it that that is unnecessary.
@@ -955,7 +940,7 @@ impl Number {
 		// This does the arithmetic in `usize` instead of `u8`, otherwise rustc emits additional instructions (`zext.b` etc) to clamp the overflowd result to `u8`,
 		// even though it will eventually clamp it to 10 (`None`).
 		let n = self as usize;
-		let n = (n - ((n == 5 || n == 6) as usize)).wrapping_sub(1);
+		let n = (n - usize::from(n == 5 || n == 6)).wrapping_sub(1);
 
 		if n <= 9 {
 			#[expect(clippy::cast_possible_truncation)]
@@ -975,7 +960,7 @@ impl Number {
 
 		// Micro-optimization: Using a `match` instead generates a LUT. Tested exhaustively in the `number_previous_next_in_sequence` test.
 		let n = self as u8;
-		let n = n + 1 + ((n == 4) as u8);
+		let n = n + 1 + u8::from(n == 4);
 
 		// Without this hint, rustc generates additional code to truncate the sum to u8 and then clamp it to 10 (`None`).
 		// But as the comments above this show, in the case where the result should be mapped to `None` n is already 10, so those instructions are unnecessary.

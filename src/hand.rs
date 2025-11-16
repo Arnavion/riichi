@@ -1,11 +1,3 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	functional::FunctionalSequence as _,
-	sequence::{Concat as _, Remove},
-	typenum,
-};
-
 use crate::{
 	ArrayVec, ArrayVecIntoCombinations,
 	HandMeldType,
@@ -35,14 +27,11 @@ use crate::{
 ///
 /// If any of these expectations are violated, the program will still be safe, but `to_scorable_hands()`
 /// will produce an unspecified and meaningless result. Therefore it is recommended to always satisfy these expectations.
-#[derive(Eq, PartialEq)]
-pub struct Hand<NT, NM>(
-	pub GenericArray<Tile, NT>,
-	pub GenericArray<HandMeld, NM>,
-) where
-	NT: ArrayLength,
-	NM: ArrayLength,
-;
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hand<const NT: usize, const NM: usize>(
+	pub [Tile; NT],
+	pub [HandMeld; NM],
+);
 
 /// A single meld inside a [`Hand`].
 ///
@@ -80,19 +69,19 @@ pub enum HandMeld {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HandStable {
 	/// A hand containing 1 tile and 4 melds.
-	One(Hand<typenum::U1, typenum::U4>),
+	One(Hand<1, 4>),
 
 	/// A hand containing 4 tiles and 3 melds.
-	Four(Hand<typenum::U4, typenum::U3>),
+	Four(Hand<4, 3>),
 
 	/// A hand containing 7 tiles and 2 melds.
-	Seven(Hand<typenum::U7, typenum::U2>),
+	Seven(Hand<7, 2>),
 
 	/// A hand containing 10 tiles and 1 meld.
-	Ten(Hand<typenum::U10, typenum::U1>),
+	Ten(Hand<10, 1>),
 
 	/// A hand containing 13 tiles.
-	Thirteen(Hand<typenum::U13, typenum::U0>),
+	Thirteen(Hand<13, 0>),
 }
 
 /// A hand containing some number of tiles and melds when it's the player's turn.
@@ -103,96 +92,63 @@ pub enum HandStable {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HandTentative {
 	/// A hand containing 2 tiles and 4 melds.
-	Two(Hand<typenum::U2, typenum::U4>),
+	Two(Hand<2, 4>),
 
 	/// A hand containing 5 tiles and 3 melds.
-	Five(Hand<typenum::U5, typenum::U3>),
+	Five(Hand<5, 3>),
 
 	/// A hand containing 8 tiles and 2 melds.
-	Eight(Hand<typenum::U8, typenum::U2>),
+	Eight(Hand<8, 2>),
 
 	/// A hand containing 11 tiles and 1 meld.
-	Eleven(Hand<typenum::U11, typenum::U1>),
+	Eleven(Hand<11, 1>),
 
 	/// A hand containing 14 tiles.
-	Fourteen(Hand<typenum::U14, typenum::U0>),
+	Fourteen(Hand<14, 0>),
 }
 
-assert_size_of!(Hand<typenum::U1, typenum::U4>, 21);
-assert_size_of!(Hand<typenum::U2, typenum::U4>, 22);
-assert_size_of!(Hand<typenum::U4, typenum::U3>, 19);
-assert_size_of!(Hand<typenum::U5, typenum::U3>, 20);
-assert_size_of!(Hand<typenum::U7, typenum::U2>, 17);
-assert_size_of!(Hand<typenum::U8, typenum::U2>, 18);
-assert_size_of!(Hand<typenum::U10, typenum::U1>, 15);
-assert_size_of!(Hand<typenum::U11, typenum::U1>, 16);
-assert_size_of!(Hand<typenum::U13, typenum::U0>, 13);
-assert_size_of!(Hand<typenum::U14, typenum::U0>, 14);
+assert_size_of!(Hand<1, 4>, 21);
+assert_size_of!(Hand<2, 4>, 22);
+assert_size_of!(Hand<4, 3>, 19);
+assert_size_of!(Hand<5, 3>, 20);
+assert_size_of!(Hand<7, 2>, 17);
+assert_size_of!(Hand<8, 2>, 18);
+assert_size_of!(Hand<10, 1>, 15);
+assert_size_of!(Hand<11, 1>, 16);
+assert_size_of!(Hand<13, 0>, 13);
+assert_size_of!(Hand<14, 0>, 14);
 assert_size_of!(HandMeld, 5);
 
-impl<NT, NM> Hand<NT, NM>
+impl<const NT: usize, const NM: usize> Hand<NT, NM>
 where
-	NT: ArrayLength + core::ops::Add<typenum::U1> + core::ops::Sub<typenum::U3>,
-	<NT as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	<NT as core::ops::Sub<typenum::U3>>::Output: ArrayLength,
-	NM: ArrayLength + core::ops::Add<typenum::U1>,
-	<NM as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, <NT as core::ops::Add<typenum::U1>>::Output>: Copy,
 	HandStable: From<Self>,
 {
 	/// Find all possible ankans (quad via kan call on a quad held in the hand).
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
-	pub fn find_ankans(self, new_tile: Tile) -> Ankans<<NT as core::ops::Add<typenum::U1>>::Output, NM> {
+	pub fn find_ankans(self, new_tile: Tile) -> Ankans<{ NT + 1 }, NM> {
 		let Self(ts, ms) = self;
-		let ts = ts.concat([new_tile].into());
+		let ts = concat(ts, [new_tile]);
 		Ankans::new(Hand(ts, ms))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<typenum::U3>,
-	<NT as core::ops::Sub<typenum::U3>>::Output: ArrayLength,
-	NM: ArrayLength + core::ops::Add<typenum::U1>,
-	<NM as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	HandStable: From<Self>,
-{
 	/// Find a possible daiminkan (quad via kan call on a triplet held in the hand) using the given new tile.
 	///
 	/// Returns the `Hand<{ NT - 3 }, NT + 1 }>` that would result from this call, if any.
-	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<<NT as core::ops::Sub<typenum::U3>>::Output, <NM as core::ops::Add<typenum::U1>>::Output>> {
+	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<{ NT - 3 }, { NM + 1 }>> {
 		let Self(ts, ms) = self;
-		find_daiminkan(ts, new_tile).map(move |(ts, m_new)| Hand(ts, ms.concat([HandMeld::Minkan(m_new)].into())))
+		find_daiminkan(ts, new_tile).map(move |(ts, m_new)| Hand(ts, concat(ms, [HandMeld::Minkan(m_new)])))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: ArrayLength + core::ops::Add<typenum::U1>,
-	<NT as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, <NT as core::ops::Add<typenum::U1>>::Output>: Copy,
-	HandStable: From<Self>,
-{
 	/// Find all possible shouminkans (quad via kan call on a minkou formed previously).
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
-	pub fn find_shouminkans(self, new_tile: Tile) -> Shouminkans<<NT as core::ops::Add<typenum::U1>>::Output, NM> {
+	pub fn find_shouminkans(self, new_tile: Tile) -> Shouminkans<{ NT + 1 }, NM> {
 		let Self(ts, ms) = self;
-		let ts = ts.concat([new_tile].into());
+		let ts = concat(ts, [new_tile]);
 		Shouminkans::new(Hand(ts, ms))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	HandStable: From<Self>,
-{
 	/// Find all possible minkous (triplet via pon call) using the given new tile.
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
@@ -208,49 +164,22 @@ where
 	}
 }
 
-impl<NT, NM> Hand<NT, NM>
+impl<const NT: usize, const NM: usize> Hand<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<typenum::U1>,
-	<NT as core::ops::Sub<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, NT>: Remove<Tile, NT, Output = GenericArray<Tile, <NT as core::ops::Sub<typenum::U1>>::Output>>,
-	NM: ArrayLength,
 	HandTentative: From<Hand<NT, NM>>,
 {
 	/// Discard the tile at the given index from this hand.
 	///
 	/// Returns the `Hand<{ NT - 1 }, NM>` resulting from the discard of that tile, and the discarded tile.
-	pub fn discard(self, i: usize) -> (Hand<<NT as core::ops::Sub<typenum::U1>>::Output, NM>, Tile) {
+	pub fn discard(self, i: usize) -> (Hand<{ NT - 1 }, NM>, Tile) {
 		let Self(ts, ms) = self;
-		let (t_discard, ts) = ts.remove(i);
+		let (ts, [t_discard]) = unsafe { except(ts, [i]) };
 		(Hand(ts, ms), t_discard)
 	}
 }
 
-#[expect(clippy::expl_impl_clone_on_copy)]
-impl<NT, NM> Clone for Hand<NT, NM>
+impl<const NT: usize, const NM: usize> core::fmt::Debug for Hand<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	fn clone(&self) -> Self {
-		*self
-	}
-}
-
-impl<NT, NM> Copy for Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{}
-
-impl<NT, NM> core::fmt::Debug for Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
 	Hand<NT, NM>: core::fmt::Display,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -258,11 +187,7 @@ where
 	}
 }
 
-impl<NT, NM> core::fmt::Display for Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+impl<const NT: usize, const NM: usize> core::fmt::Display for Hand<NT, NM> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let Self(ts, ms) = self;
 		if let Some((t1, ts_rest)) = ts.split_first() {
@@ -284,7 +209,7 @@ where
 	}
 }
 
-impl Hand<typenum::U1, typenum::U4> {
+impl Hand<1, 4> {
 	/// Add the given drawn / called tile to this hand and convert it into a [`ScorableHand`] if one exists.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -294,11 +219,10 @@ impl Hand<typenum::U1, typenum::U4> {
 	///
 	/// Returns `None` if a scorable hand cannot be formed with the new tile.
 	pub fn to_scorable_hands(self, new_tile: Tile) -> Option<ScorableHand> {
-		let Self(ts, ms) = self;
-		let [t1] = ts.into();
+		let Self([t1], ms) = self;
 
 		if t1 == new_tile {
-			let mut ms: [ScorableHandMeld; _] = ms.map(Into::into).into();
+			let mut ms = ms.map(Into::into);
 			ms.sort_unstable();
 			let [m1, m2, m3, m4] = ms;
 			Some(ScorableHand::Regular { melds: ([m1, m2, m3], ScorableHandFourthMeld::Tanki(m4)), pair: ScorableHandPair([t1, new_tile]) })
@@ -309,7 +233,7 @@ impl Hand<typenum::U1, typenum::U4> {
 	}
 }
 
-impl Hand<typenum::U4, typenum::U3> {
+impl Hand<4, 3> {
 	/// Add the given drawn / called tile to this hand and convert it into a set of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -323,46 +247,35 @@ impl Hand<typenum::U4, typenum::U3> {
 	pub fn to_scorable_hands(self, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> alloc::collections::BTreeSet<ScorableHand> {
 		let Self(ts, ms) = self;
 		let ts = {
-			let [t1, t2, t3, t4] = ts.map(|t| (t, None)).into();
+			let [t1, t2, t3, t4] = ts.map(|t| (t, None));
 			let mut ts = [t1, t2, t3, t4, (new_tile, Some(tsumo_or_ron))];
 			ts.sort_unstable_by_key(|(t, _)| *t);
-			GenericArray::from(ts)
+			ts
 		};
-		let mut ms: [ScorableHandMeld; _] = ms.map(Into::into).into();
+		let mut ms = ms.map(Into::into);
 		ms.sort_unstable();
-		let [ma, mb, mc] = ms;
 
-		ts.windows(2).enumerate()
-			.filter_map(|(i, pts)| {
-				let &[(pt1, _), (pt2, _)] = pts else { unsafe { core::hint::unreachable_unchecked(); } };
+		ts.array_windows().enumerate()
+			.filter_map(|(i, &[(pt1, _), (pt2, _)])| {
 				if pt1 != pt2 {
 					return None;
 				}
 				let rest = unsafe { skip_adjacent_2(ts, i) };
-				let md = to_meld(rest.into())?;
+				let md = to_meld(rest)?;
 				let pair = ScorableHandPair([pt1, pt2]);
 				match md {
-					ScorableHandFourthMeld::Tanki(md) =>
-						if md >= mc {
-							Some(ScorableHand::Regular { melds: ([ma, mb, mc], ScorableHandFourthMeld::Tanki(md)), pair })
-						}
-						else if md >= mb {
-							Some(ScorableHand::Regular { melds: ([ma, mb, md], ScorableHandFourthMeld::Tanki(mc)), pair })
-						}
-						else if md >= ma {
-							Some(ScorableHand::Regular { melds: ([ma, md, mb], ScorableHandFourthMeld::Tanki(mc)), pair })
-						}
-						else {
-							Some(ScorableHand::Regular { melds: ([md, ma, mb], ScorableHandFourthMeld::Tanki(mc)), pair })
-						},
-					m4 => Some(ScorableHand::Regular { melds: ([ma, mb, mc], m4), pair }),
+					ScorableHandFourthMeld::Tanki(md) => {
+						let [m1, m2, m3, m4] = merge_sorted(&ms, &[md]);
+						Some(ScorableHand::Regular { melds: ([m1, m2, m3], ScorableHandFourthMeld::Tanki(m4)), pair })
+					},
+					m4 => Some(ScorableHand::Regular { melds: (ms, m4), pair }),
 				}
 			})
 			.collect()
 	}
 }
 
-impl Hand<typenum::U7, typenum::U2> {
+impl Hand<7, 2> {
 	/// Add the given drawn / called tile to this hand and convert it into a set of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -376,60 +289,32 @@ impl Hand<typenum::U7, typenum::U2> {
 	pub fn to_scorable_hands(self, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> alloc::collections::BTreeSet<ScorableHand> {
 		let Self(ts, ms) = self;
 		let ts = {
-			let [t1, t2, t3, t4, t5, t6, t7] = ts.map(|t| (t, None)).into();
+			let [t1, t2, t3, t4, t5, t6, t7] = ts.map(|t| (t, None));
 			let mut ts = [t1, t2, t3, t4, t5, t6, t7, (new_tile, Some(tsumo_or_ron))];
 			ts.sort_unstable_by_key(|(t, _)| *t);
-			GenericArray::from(ts)
+			ts
 		};
-		let mut ms: [ScorableHandMeld; _] = ms.map(Into::into).into();
+		let mut ms = ms.map(Into::into);
 		ms.sort_unstable();
-		let [ma, mb] = ms;
 
-		ts.windows(2).enumerate()
-			.filter_map(|(i, pts)| {
-				let &[(pt1, _), (pt2, _)] = pts else { unsafe { core::hint::unreachable_unchecked(); } };
+		ts.array_windows().enumerate()
+			.filter_map(|(i, &[(pt1, _), (pt2, _)])| {
 				if pt1 != pt2 {
 					return None;
 				}
 				let rest = unsafe { skip_adjacent_2(ts, i) };
-				Some((rest.into(), pt1, pt2))
+				Some((rest, pt1, pt2))
 			})
 			.flat_map(|(rest, pt1, pt2)| {
 				let pair = ScorableHandPair([pt1, pt2]);
 				to_melds_2(rest).map(move |(mc, md)| match md {
-					ScorableHandFourthMeld::Tanki(md) =>
-						if mc >= mb {
-							ScorableHand::Regular { melds: ([ma, mb, mc], ScorableHandFourthMeld::Tanki(md)), pair }
-						}
-						else if mc >= ma {
-							if md >= mb {
-								ScorableHand::Regular { melds: ([ma, mc, mb], ScorableHandFourthMeld::Tanki(md)), pair }
-							}
-							else {
-								ScorableHand::Regular { melds: ([ma, mc, md], ScorableHandFourthMeld::Tanki(mb)), pair }
-							}
-						}
-						else if md >= mb {
-							ScorableHand::Regular { melds: ([mc, ma, mb], ScorableHandFourthMeld::Tanki(md)), pair }
-						}
-						else if md >= ma {
-							ScorableHand::Regular { melds: ([mc, ma, md], ScorableHandFourthMeld::Tanki(mb)), pair }
-						}
-						else {
-							ScorableHand::Regular { melds: ([mc, md, ma], ScorableHandFourthMeld::Tanki(mb)), pair }
-						},
+					ScorableHandFourthMeld::Tanki(md) => {
+						let [m1, m2, m3, m4] = merge_sorted(&ms, &[mc, md]);
+						ScorableHand::Regular { melds: ([m1, m2, m3], ScorableHandFourthMeld::Tanki(m4)), pair }
+					},
 					m4 => {
-						let melds =
-							if mc >= mb {
-								[ma, mb, mc]
-							}
-							else if mc >= ma {
-								[ma, mc, mb]
-							}
-							else {
-								[mc, ma, mb]
-							};
-						ScorableHand::Regular { melds: (melds, m4), pair }
+						let [m1, m2, m3] = merge_sorted(&ms, &[mc]);
+						ScorableHand::Regular { melds: ([m1, m2, m3], m4), pair }
 					},
 				})
 			})
@@ -437,7 +322,7 @@ impl Hand<typenum::U7, typenum::U2> {
 	}
 }
 
-impl Hand<typenum::U10, typenum::U1> {
+impl Hand<10, 1> {
 	/// Add the given drawn / called tile to this hand and convert it into a set of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -451,55 +336,39 @@ impl Hand<typenum::U10, typenum::U1> {
 	pub fn to_scorable_hands(self, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> alloc::collections::BTreeSet<ScorableHand> {
 		let Self(ts, ms) = self;
 		let ts = {
-			let [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10] = ts.map(|t| (t, None)).into();
+			let [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10] = ts.map(|t| (t, None));
 			let mut ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, (new_tile, Some(tsumo_or_ron))];
 			ts.sort_unstable_by_key(|(t, _)| *t);
-			GenericArray::from(ts)
+			ts
 		};
-		let [ma] = ms.map(Into::into).into();
+		let ms = ms.map(Into::into);
 
-		ts.windows(2).enumerate()
-			.filter_map(|(i, pts)| {
-				let &[(pt1, _), (pt2, _)] = pts else { unsafe { core::hint::unreachable_unchecked(); } };
+		ts.array_windows().enumerate()
+			.filter_map(|(i, &[(pt1, _), (pt2, _)])| {
 				if pt1 != pt2 {
 					return None;
 				}
 				let rest = unsafe { skip_adjacent_2(ts, i) };
-				Some((rest.into(), pt1, pt2))
+				Some((rest, pt1, pt2))
 			})
 			.flat_map(|(rest, pt1, pt2)| {
 				let pair = ScorableHandPair([pt1, pt2]);
 				to_melds_3(rest).map(move |([mb, mc], md)| match md {
-					ScorableHandFourthMeld::Tanki(md) =>
-						if ma >= md {
-							ScorableHand::Regular { melds: ([mb, mc, md], ScorableHandFourthMeld::Tanki(ma)), pair }
-						}
-						else if ma >= mc {
-							ScorableHand::Regular { melds: ([mb, mc, ma], ScorableHandFourthMeld::Tanki(md)), pair }
-						}
-						else if ma >= mb {
-							ScorableHand::Regular { melds: ([mb, ma, mc], ScorableHandFourthMeld::Tanki(md)), pair }
-						}
-						else {
-							ScorableHand::Regular { melds: ([ma, mb, mc], ScorableHandFourthMeld::Tanki(md)), pair }
-						},
-					m4 =>
-						if ma >= mc {
-							ScorableHand::Regular { melds: ([mb, mc, ma], m4), pair }
-						}
-						else if ma >= mb {
-							ScorableHand::Regular { melds: ([mb, ma, mc], m4), pair }
-						}
-						else {
-							ScorableHand::Regular { melds: ([ma, mb, mc], m4), pair }
-						},
+					ScorableHandFourthMeld::Tanki(md) => {
+						let [m1, m2, m3, m4] = merge_sorted(&ms, &[mb, mc, md]);
+						ScorableHand::Regular { melds: ([m1, m2, m3], ScorableHandFourthMeld::Tanki(m4)), pair }
+					},
+					m4 => {
+						let [m1, m2, m3] = merge_sorted(&ms, &[mb, mc]);
+						ScorableHand::Regular { melds: ([m1, m2, m3], m4), pair }
+					},
 				})
 			})
 			.collect()
 	}
 }
 
-impl Hand<typenum::U13, typenum::U0> {
+impl Hand<13, 0> {
 	/// Add the given drawn / called tile to this hand and convert it into a set of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -517,46 +386,44 @@ impl Hand<typenum::U13, typenum::U0> {
 	}
 
 	fn to_scorable_hands_inner(self, new_tile: Tile, tsumo_or_ron: TsumoOrRon, result: &mut alloc::collections::BTreeSet<ScorableHand>) {
-		let Self(ts, ms) = self;
+		let Self(ts, []) = self;
 		let ts = {
-			let [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13] = ts.map(|t| (t, None)).into();
+			let [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13] = ts.map(|t| (t, None));
 			let mut ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, (new_tile, Some(tsumo_or_ron))];
 			ts.sort_unstable_by_key(|(t, _)| *t);
-			GenericArray::from(ts)
+			ts
 		};
-		let [] = ms.into();
 
 		result.extend(
-			ts.windows(2).enumerate()
-			.filter_map(|(i, pts)| {
-				let &[(pt1, _), (pt2, _)] = pts else { unsafe { core::hint::unreachable_unchecked(); } };
+			ts.array_windows().enumerate()
+			.filter_map(|(i, &[(pt1, _), (pt2, _)])| {
 				if pt1 != pt2 {
 					return None;
 				}
 				let rest = unsafe { skip_adjacent_2(ts, i) };
-				Some((rest.into(), pt1, pt2))
+				Some((rest, pt1, pt2))
 			})
 			.flat_map(|(rest, pt1, pt2)| to_melds_4(rest).map(move |([m1, m2, m3], m4)| ScorableHand::Regular { melds: ([m1, m2, m3], m4), pair: ScorableHandPair([pt1, pt2]) })),
 		);
 
-		if let Some(h) = to_chiitoi(ts.into()) {
+		if let Some(h) = to_chiitoi(ts) {
 			result.insert(h);
 		}
 
-		if let Some(h) = to_kokushi_musou(ts.map(|(t, _)| t).into(), new_tile) {
+		if let Some(h) = to_kokushi_musou(ts.map(|(t, _)| t), new_tile) {
 			result.insert(h);
 		}
 	}
 }
 
-impl Hand<typenum::U14, typenum::U0> {
+impl Hand<14, 0> {
 	/// Find all possible ankans (quad via kan call on a quad held in the hand).
 	///
 	/// This is used for the special case where the dealer's starting hand can call an ankan. All other cases are handled by
 	/// a stable hand type (like `Hand<13, 0>`) calling `find_ankans` at the time of drawing a new tile.
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
-	pub fn find_ankans(self) -> Ankans<typenum::U14, typenum::U0> {
+	pub fn find_ankans(self) -> Ankans<14, 0> {
 		Ankans::new(self)
 	}
 
@@ -577,7 +444,7 @@ impl Hand<typenum::U14, typenum::U0> {
 		let mut result: alloc::collections::BTreeSet<_> = Default::default();
 
 		for i in 0..ts.len() {
-			let (new_tile, ts) = ts.remove(i);
+			let (ts, [new_tile]) = unsafe { except(ts, [i]) };
 			Hand(ts, ms).to_scorable_hands_inner(new_tile, TsumoOrRon::Tsumo, &mut result);
 		}
 
@@ -796,16 +663,16 @@ impl core::str::FromStr for HandStable {
 					return Err(());
 				}
 				Hand(
-					[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13].into(),
-					[].into(),
+					[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13],
+					[],
 				).into()
 			},
 
 			[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10] => {
 				let m1 = s.parse()?;
 				Hand(
-					[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10].into(),
-					[m1].into(),
+					[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10],
+					[m1],
 				).into()
 			},
 
@@ -814,8 +681,8 @@ impl core::str::FromStr for HandStable {
 				let m1 = m1.parse()?;
 				let m2 = m2.parse()?;
 				Hand(
-					[t1, t2, t3, t4, t5, t6, t7].into(),
-					[m1, m2].into(),
+					[t1, t2, t3, t4, t5, t6, t7],
+					[m1, m2],
 				).into()
 			},
 
@@ -826,8 +693,8 @@ impl core::str::FromStr for HandStable {
 				let m2 = m2.parse()?;
 				let m3 = m3.parse()?;
 				Hand(
-					[t1, t2, t3, t4].into(),
-					[m1, m2, m3].into(),
+					[t1, t2, t3, t4],
+					[m1, m2, m3],
 				).into()
 			},
 
@@ -840,8 +707,8 @@ impl core::str::FromStr for HandStable {
 				let m3 = m3.parse()?;
 				let m4 = m4.parse()?;
 				Hand(
-					[t1].into(),
-					[m1, m2, m3, m4].into(),
+					[t1],
+					[m1, m2, m3, m4],
 				).into()
 			},
 
@@ -881,9 +748,9 @@ impl HandTentative {
 }
 
 macro_rules! hand_enum_from {
-	($($nt:ty, $nm:ty => $ty:tt :: $variant:ident ,)*) => {
+	($($nt:expr, $nm:expr => $ty:tt :: $variant:ident ,)*) => {
 		$(
-			impl From<Hand<$nt, $nm>> for $ty {
+			const impl From<Hand<$nt, $nm>> for $ty {
 				fn from(h: Hand<$nt, $nm>) -> Self {
 					Self::$variant(h)
 				}
@@ -893,34 +760,26 @@ macro_rules! hand_enum_from {
 }
 
 hand_enum_from! {
-	typenum::U1, typenum::U4 => HandStable::One,
-	typenum::U2, typenum::U4 => HandTentative::Two,
-	typenum::U4, typenum::U3 => HandStable::Four,
-	typenum::U5, typenum::U3 => HandTentative::Five,
-	typenum::U7, typenum::U2 => HandStable::Seven,
-	typenum::U8, typenum::U2 => HandTentative::Eight,
-	typenum::U10, typenum::U1 => HandStable::Ten,
-	typenum::U11, typenum::U1 => HandTentative::Eleven,
-	typenum::U13, typenum::U0 => HandStable::Thirteen,
-	typenum::U14, typenum::U0 => HandTentative::Fourteen,
+	1, 4 => HandStable::One,
+	2, 4 => HandTentative::Two,
+	4, 3 => HandStable::Four,
+	5, 3 => HandTentative::Five,
+	7, 2 => HandStable::Seven,
+	8, 2 => HandTentative::Eight,
+	10, 1 => HandStable::Ten,
+	11, 1 => HandTentative::Eleven,
+	13, 0 => HandStable::Thirteen,
+	14, 0 => HandTentative::Fourteen,
 }
 
 /// [`Iterator`] of [`Hand<{ NT - 4 }, { NM + 1 }>`](Hand) values formed by creating an ankan in the given hand.
-pub struct Ankans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Clone, Debug)]
+pub struct Ankans<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	tiles: TileMultiSetIntoIter<Tile34MultiSetElement>,
 }
 
-impl<NT, NM> Ankans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Ankans<NT, NM> {
 	fn new(hand: Hand<NT, NM>) -> Self {
 		let tiles: Tile34MultiSet = hand.0.into_iter().collect();
 		Self {
@@ -930,44 +789,12 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Ankans<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	TileMultiSetIntoIter<Tile34MultiSetElement>: Clone,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			tiles: self.tiles.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Ankans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Ankans")
-			.field("hand", &self.hand)
-			.field("tiles", &self.tiles)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Ankans<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<typenum::U4>,
-	<NT as core::ops::Sub<typenum::U4>>::Output: ArrayLength,
-	NM: ArrayLength + core::ops::Add<typenum::U1>,
-	<NM as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = Hand<<NT as core::ops::Sub<typenum::U4>>::Output, <NM as core::ops::Add<typenum::U1>>::Output>;
+	type Item = Hand<{ NT - 4 }, { NM + 1 }>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -990,8 +817,8 @@ where
 				let ts_rest = ts_rest.try_into();
 				let ts_rest = unsafe { ts_rest.unwrap_unchecked() };
 				let ts_kan = ts_kan.try_into();
-				let ts_kan: GenericArray<_, typenum::U4> = unsafe { ts_kan.unwrap_unchecked() };
-				return Some(Hand(ts_rest, ms.concat([HandMeld::Ankan(ts_kan.into())].into())));
+				let ts_kan = unsafe { ts_kan.unwrap_unchecked() };
+				return Some(Hand(ts_rest, concat(ms, [HandMeld::Ankan(ts_kan)])));
 			}
 		}
 	}
@@ -1002,24 +829,20 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Ankans<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<typenum::U4>,
-	<NT as core::ops::Sub<typenum::U4>>::Output: ArrayLength,
-	NM: ArrayLength + core::ops::Add<typenum::U1>,
-	<NM as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {}
 
 /// [`Iterator`] of [`HandStable`] values formed by creating an ankan in the given hand.
 #[derive(Clone, Debug)]
 pub enum HandAnkans {
 	One,
-	Four(Ankans<typenum::U5, typenum::U3>),
-	Seven(Ankans<typenum::U8, typenum::U2>),
-	Ten(Ankans<typenum::U11, typenum::U1>),
-	Thirteen(Ankans<typenum::U14, typenum::U0>),
+	Four(Ankans<5, 3>),
+	Seven(Ankans<8, 2>),
+	Ten(Ankans<11, 1>),
+	Thirteen(Ankans<14, 0>),
 }
 
 impl Iterator for HandAnkans {
@@ -1064,83 +887,37 @@ impl Iterator for HandAnkans {
 
 impl core::iter::FusedIterator for HandAnkans {}
 
-fn find_daiminkan<N>(
-	ts: GenericArray<Tile, N>,
+fn find_daiminkan<const N: usize>(
+	ts: [Tile; N],
 	new_tile: Tile,
-) -> Option<(GenericArray<Tile, <N as core::ops::Sub<typenum::U3>>::Output>, [Tile; 4])>
-where
-	N: ArrayLength + core::ops::Sub<typenum::U3>,
-	<N as core::ops::Sub<typenum::U3>>::Output: ArrayLength,
-	GenericArray<Tile, N>: Copy,
-{
-	let [(i1, t1), (i2, t2), (i3, t3)] = GenericArray::try_from_iter(ts.into_iter().enumerate().filter(|&(_, t)| t == new_tile)).ok()?.into();
+) -> Option<([Tile; N - 3], [Tile; 4])> {
+	let [(i1, t1), (i2, t2), (i3, t3)] = ts.into_iter().enumerate().filter(|&(_, t)| t == new_tile).next_chunk().ok()?;
 	let m = [t1, t2, t3, new_tile];
-	let (ts, _) = unsafe { except(ts, [i1, i2, i3].into()) };
+	let (ts, _) = unsafe { except(ts, [i1, i2, i3]) };
 	Some((ts, m))
 }
 
 /// [`Iterator`] of [`Hand<{ NT - 1 }, NM>`](Hand) values formed by creating a shouminkan in the given hand.
-pub struct Shouminkans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Clone, Debug)]
+pub struct Shouminkans<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
-	tiles: core::iter::Enumerate<generic_array::GenericArrayIter<Tile, NT>>,
+	tiles: core::iter::Enumerate<core::array::IntoIter<Tile, NT>>,
 }
 
-impl<NT, NM> Shouminkans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Shouminkans<NT, NM> {
 	fn new(hand: Hand<NT, NM>) -> Self {
-		let tiles = hand.0.into_iter().enumerate();
 		Self {
 			hand,
-			tiles,
+			tiles: hand.0.into_iter().enumerate(),
 		}
 	}
 }
 
-impl<NT, NM> Clone for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Shouminkans<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	TileMultiSetIntoIter<Tile34MultiSetElement>: Clone,
+	[(); NT - 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			tiles: self.tiles.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Shouminkans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Shouminkans")
-			.field("hand", &self.hand)
-			.field("tiles", &self.tiles)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Shouminkans<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<typenum::U1>,
-	<NT as core::ops::Sub<typenum::U1>>::Output: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy + Remove<Tile, NT, Output = GenericArray<Tile, <NT as core::ops::Sub<typenum::U1>>::Output>>,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = Hand<<NT as core::ops::Sub<typenum::U1>>::Output, NM>;
+	type Item = Hand<{ NT - 1 }, NM>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1155,7 +932,7 @@ where
 				}
 			}
 			if found {
-				let (_, ts) = self.hand.0.remove(i);
+				let (ts, _) = unsafe { except(self.hand.0, [i]) };
 				return Some(Hand(ts, melds));
 			}
 		}
@@ -1167,22 +944,18 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Shouminkans<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<typenum::U1>,
-	<NT as core::ops::Sub<typenum::U1>>::Output: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy + Remove<Tile, NT, Output = GenericArray<Tile, <NT as core::ops::Sub<typenum::U1>>::Output>>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 1]:,
 {}
 
 /// [`Iterator`] of [`HandStable`] values formed by creating an shouminkan in the given hand.
 #[derive(Clone, Debug)]
 pub enum HandShouminkans {
-	One(Shouminkans<typenum::U2, typenum::U4>),
-	Four(Shouminkans<typenum::U5, typenum::U3>),
-	Seven(Shouminkans<typenum::U8, typenum::U2>),
-	Ten(Shouminkans<typenum::U11, typenum::U1>),
+	One(Shouminkans<2, 4>),
+	Four(Shouminkans<5, 3>),
+	Seven(Shouminkans<8, 2>),
+	Ten(Shouminkans<11, 1>),
 	Thirteen,
 }
 
@@ -1231,22 +1004,14 @@ impl core::iter::FusedIterator for HandShouminkans {}
 /// [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`](Hand) values formed by creating a minkou
 /// in the given hand using the given new tile. Along with the `Hand`, the iterator element contains a list of tile indices
 /// in the resulting hand that are allowed to be discarded. Indices that are not present in this list are not allowed to be discarded due to kuikae.
-pub struct Minkous<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Clone, Debug)]
+pub struct Minkous<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	new_tile: Tile,
 	combinations: ArrayVecIntoCombinations<(usize, Tile), NT>,
 }
 
-impl<NT, NM> Minkous<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Minkous<NT, NM> {
 	fn new(hand: Hand<NT, NM>, new_tile: Tile) -> Self {
 		let ts_consider: ArrayVec<_, _> = hand.0.into_iter().enumerate().filter(|&(_, t)| t == new_tile).collect();
 		Self {
@@ -1257,57 +1022,23 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Minkous<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	GenericArray<core::mem::MaybeUninit<(usize, Tile)>, NT>: Clone,
+	[(); NT - 2]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			new_tile: self.new_tile,
-			combinations: self.combinations.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Minkous<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Minkous")
-			.field("hand", &self.hand)
-			.field("new_tile", &self.new_tile)
-			.field("combinations", &self.combinations)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Minkous<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<typenum::U2>,
-	<NT as core::ops::Sub<typenum::U2>>::Output: ArrayLength,
-	NM: ArrayLength + core::ops::Add<typenum::U1>,
-	<NM as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = (Hand<<NT as core::ops::Sub<typenum::U2>>::Output, <NM as core::ops::Add<typenum::U1>>::Output>, ArrayVec<usize, <NT as core::ops::Sub<typenum::U2>>::Output>);
+	type Item = (Hand<{ NT - 2 }, { NM + 1 }>, ArrayVec<usize, { NT - 2 }>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let ((i1, t1), (i2, t2)) = self.combinations.next()?;
 		let ts = [t1, t2, self.new_tile];
 		let m = HandMeld::Minkou(ts);
-		let (ts, _) = unsafe { except(self.hand.0, [i1, i2].into()) };
+		let (ts, _) = unsafe { except(self.hand.0, [i1, i2]) };
 		let allowed_discards: ArrayVec<_, _> =
 			ts.iter().enumerate()
 			.filter_map(|(i, &t)| (t != self.new_tile).then_some(i))
 			.collect();
-		(!allowed_discards.is_empty()).then(|| (Hand(ts, self.hand.1.concat([m].into())), allowed_discards))
+		(!allowed_discards.is_empty()).then(|| (Hand(ts, concat(self.hand.1, [m])), allowed_discards))
 	}
 
 	fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1316,10 +1047,8 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minkous<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
 	Self: Iterator,
 {}
 
@@ -1329,14 +1058,14 @@ where
 #[derive(Clone, Debug)]
 pub enum HandMinkous {
 	One,
-	Four(Minkous<typenum::U4, typenum::U3>),
-	Seven(Minkous<typenum::U7, typenum::U2>),
-	Ten(Minkous<typenum::U10, typenum::U1>),
-	Thirteen(Minkous<typenum::U13, typenum::U0>),
+	Four(Minkous<4, 3>),
+	Seven(Minkous<7, 2>),
+	Ten(Minkous<10, 1>),
+	Thirteen(Minkous<13, 0>),
 }
 
 impl Iterator for HandMinkous {
-	type Item = (HandTentative, ArrayVec<usize, typenum::U11>);
+	type Item = (HandTentative, ArrayVec<usize, 11>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -1383,22 +1112,14 @@ impl core::iter::FusedIterator for HandMinkous {}
 /// [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`](Hand) values formed by creating a minjun
 /// in the given hand using the given new tile. Along with the `Hand`, the iterator element contains a list of tile indices
 /// in the resulting hand that are allowed to be discarded. Indices that are not present in this list are not allowed to be discarded due to kuikae.
-pub struct Minjuns<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Clone, Debug)]
+pub struct Minjuns<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	new_tile: NumberTile,
 	combinations: ArrayVecIntoCombinations<(usize, NumberTile), NT>,
 }
 
-impl<NT, NM> Minjuns<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Minjuns<NT, NM> {
 	fn new(hand: Hand<NT, NM>, new_tile: NumberTile) -> Self {
 		let ts_consider: ArrayVec<_, _> =
 			hand.0.into_iter()
@@ -1418,46 +1139,12 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Minjuns<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	GenericArray<core::mem::MaybeUninit<(usize, NumberTile)>, NT>: Clone,
+	[(); NT - 2]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			new_tile: self.new_tile,
-			combinations: self.combinations.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Minjuns<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Minjuns")
-			.field("hand", &self.hand)
-			.field("new_tile", &self.new_tile)
-			.field("combinations", &self.combinations)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Minjuns<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<typenum::U2>,
-	<NT as core::ops::Sub<typenum::U2>>::Output: ArrayLength,
-	NM: ArrayLength + core::ops::Add<typenum::U1>,
-	<NM as core::ops::Add<typenum::U1>>::Output: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = (Hand<<NT as core::ops::Sub<typenum::U2>>::Output, <NM as core::ops::Add<typenum::U1>>::Output>, ArrayVec<usize, <NT as core::ops::Sub<typenum::U2>>::Output>);
+	type Item = (Hand<{ NT - 2 }, { NM + 1 }>, ArrayVec<usize, { NT - 2 }>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1469,7 +1156,7 @@ where
 			};
 			if Some(t2.number()) == t1.number().next_in_sequence() && Some(t3.number()) == t2.number().next_in_sequence() {
 				let m = HandMeld::Minjun([t1, t2, t3]);
-				let (ts, _) = unsafe { except(self.hand.0, [i1, i2].into()) };
+				let (ts, _) = unsafe { except(self.hand.0, [i1, i2]) };
 				let cannot_discard_new = Tile::from(self.new_tile);
 				let cannot_discard_left = if t3 == self.new_tile { t1.previous_in_sequence().map(Tile::from) } else { None };
 				let cannot_discard_right = if t1 == self.new_tile { t3.next_in_sequence().map(Tile::from) } else { None };
@@ -1478,7 +1165,7 @@ where
 					.filter_map(|(i, &t)| (t != cannot_discard_new && Some(t) != cannot_discard_left && Some(t) != cannot_discard_right).then_some(i))
 					.collect();
 				if !allowed_discards.is_empty() {
-					return Some((Hand(ts, self.hand.1.concat([m].into())), allowed_discards));
+					return Some((Hand(ts, concat(self.hand.1, [m])), allowed_discards));
 				}
 			}
 		}
@@ -1490,10 +1177,8 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minjuns<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
 	Self: Iterator,
 {}
 
@@ -1503,14 +1188,14 @@ where
 #[derive(Clone, Debug)]
 pub enum HandMinjuns {
 	One,
-	Four(Minjuns<typenum::U4, typenum::U3>),
-	Seven(Minjuns<typenum::U7, typenum::U2>),
-	Ten(Minjuns<typenum::U10, typenum::U1>),
-	Thirteen(Minjuns<typenum::U13, typenum::U0>),
+	Four(Minjuns<4, 3>),
+	Seven(Minjuns<7, 2>),
+	Ten(Minjuns<10, 1>),
+	Thirteen(Minjuns<13, 0>),
 }
 
 impl Iterator for HandMinjuns {
-	type Item = (HandTentative, ArrayVec<usize, typenum::U11>);
+	type Item = (HandTentative, ArrayVec<usize, 11>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -1554,19 +1239,18 @@ impl Iterator for HandMinjuns {
 
 impl core::iter::FusedIterator for HandMinjuns {}
 
+fn concat<T, const N1: usize, const N2: usize>(ts1: [T; N1], ts2: [T; N2]) -> [T; N1 + N2] {
+	let ts = ts1.into_iter().chain(ts2).next_chunk();
+	unsafe { ts.unwrap_unchecked() }
+}
+
 /// # Safety
 ///
 /// Every element of `i_discard` must be distinct and within the bounds of `ts`.
-unsafe fn except<T, N, DN>(
-	ts: GenericArray<T, N>,
-	i_discard: GenericArray<usize, DN>,
-) -> (GenericArray<T, <N as core::ops::Sub<DN>>::Output>, GenericArray<T, DN>)
-where
-	N: ArrayLength + core::ops::Sub<DN>,
-	<N as core::ops::Sub<DN>>::Output: ArrayLength,
-	DN: ArrayLength,
-	GenericArray<usize, DN>: Copy,
-{
+unsafe fn except<T, const N: usize, const DN: usize>(
+	ts: [T; N],
+	i_discard: [usize; DN],
+) -> ([T; N - DN], [T; DN]) {
 	let mut ts_result = ArrayVec::new();
 	let mut discards = ArrayVec::new();
 	for (i, t) in ts.into_iter().enumerate() {
@@ -1589,15 +1273,47 @@ where
 /// # Safety
 ///
 /// `pt1_i` and `pt1_i + 1` must be within the bounds of `ts`.
-unsafe fn skip_adjacent_2<T, N>(ts: GenericArray<T, N>, pt1_i: usize) -> GenericArray<T, <N as core::ops::Sub<typenum::U2>>::Output>
+unsafe fn skip_adjacent_2<T, const N: usize>(ts: [T; N], pt1_i: usize) -> [T; N - 2]
 where
 	T: Copy,
-	N: ArrayLength + core::ops::Sub<typenum::U2>,
-	<N as core::ops::Sub<typenum::U2>>::Output: ArrayLength,
-	GenericArray<T, N>: Copy,
 {
-	let rest = GenericArray::try_from_iter(ts.into_iter().take(pt1_i).chain(ts.into_iter().skip(pt1_i + 2)));
+	let rest = ts.into_iter().take(pt1_i).chain(ts.into_iter().skip(pt1_i + 2)).next_chunk();
 	unsafe { rest.unwrap_unchecked() }
+}
+
+fn merge_sorted<T, const N1: usize, const N2: usize>(arr1: &[T; N1], arr2: &[T; N2]) -> [T; N1 + N2]
+where
+	T: Copy + core::cmp::PartialOrd,
+{
+	fn merge_sorted_inner<T>(dst: &mut [core::mem::MaybeUninit<T>], s1: &[T], s2: &[T]) where T: Copy + core::cmp::PartialOrd {
+		let mut a_s = s1.iter().copied();
+		let mut b_s = s2.iter().copied();
+		let mut a_prev = None;
+		let mut b_prev = None;
+		dst.write_iter(core::iter::from_fn(move || {
+			match (a_prev.take().or_else(|| a_s.next()), b_prev.take().or_else(|| b_s.next())) {
+				(Some(a), Some(b)) =>
+					if a <= b {
+						b_prev = Some(b);
+						Some(a)
+					}
+					else {
+						a_prev = Some(a);
+						Some(b)
+					},
+
+				(Some(a), None) => Some(a),
+
+				(None, Some(b)) => Some(b),
+
+				(None, None) => None,
+			}
+		}));
+	}
+
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; N1 + N2];
+	merge_sorted_inner(&mut result, arr1, arr2);
+	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
 }
 
 fn is_kou([t1, t2, t3]: [Tile; 3]) -> bool {
@@ -1646,13 +1362,11 @@ const fn to_shun([(t1, t1tr), (t2, t2tr), (t3, t3tr)]: [(NumberTile, Option<Tsum
 	}
 }
 
-fn meld_and_rest<N>(
-	ts: GenericArray<(Tile, Option<TsumoOrRon>), N>,
-) -> impl Iterator<Item = (ScorableHandFourthMeld, GenericArray<(Tile, Option<TsumoOrRon>), <N as core::ops::Sub<typenum::U3>>::Output>)>
+fn meld_and_rest<const N: usize>(
+	ts: [(Tile, Option<TsumoOrRon>); N],
+) -> impl Iterator<Item = (ScorableHandFourthMeld, [(Tile, Option<TsumoOrRon>); N - 3])>
 where
-	N: ArrayLength + core::ops::Sub<typenum::U3>,
-	<N as core::ops::Sub<typenum::U3>>::Output: ArrayLength,
-	GenericArray<(Tile, Option<TsumoOrRon>), N>: Copy,
+	[(); N - 3]:,
 {
 	let (t1, t1tr) = ts[0];
 
@@ -1669,7 +1383,7 @@ where
 		let kou_and_rests = {
 			// If t1 is an old tile, we only need one t2 that is an old tile and one t2 that is a new tile.
 			// If t1 is a new tile, then we only need one t2 that is an old tile.
-			let t2s =
+			let (t2_old, t2_new) =
 				ts.into_iter().skip(1).enumerate()
 				.try_fold((None, None), |(mut old, mut new), (i2, (t2, t2tr))| {
 					if t2 != t1 { return core::ops::ControlFlow::Continue((old, new)); }
@@ -1685,12 +1399,8 @@ where
 					else {
 						core::ops::ControlFlow::Continue((old, new))
 					}
-				});
-			// TODO(rustup): Use `core::ops::ControlFlow::into_value` when that is stabilized.
-			let (t2_old, t2_new) = match t2s {
-				core::ops::ControlFlow::Continue(value) |
-				core::ops::ControlFlow::Break(value) => value,
-			};
+				})
+				.into_value();
 			[
 				t2_old.map(|(i2_old, t2_old)| (i2_old, t2_old, None)),
 				t2_new.map(|(i2_new, t2_new, t2tr_new)| (i2_new, t2_new, Some(t2tr_new))),
@@ -1699,7 +1409,7 @@ where
 				.flat_map(move |(i2, t2, t2tr)| {
 					// If t1 and t2 are old tiles, we only need one t3 that is an old tile and one t3 that is a new tile.
 					// If either t1 or t2 is a new tile, then we only need one t3 that is an old tile.
-					let t3s =
+					let (t3_old, t3_new) =
 						ts.into_iter().skip(1).enumerate()
 						.skip(i2 + 1)
 						.try_fold((None, None), |(mut old, mut new), (i3, (t3, t3tr))| {
@@ -1716,12 +1426,8 @@ where
 							else {
 								core::ops::ControlFlow::Continue((old, new))
 							}
-						});
-					// TODO(rustup): Use `core::ops::ControlFlow::into_value` when that is stabilized.
-					let (t3_old, t3_new) = match t3s {
-						core::ops::ControlFlow::Continue(value) |
-						core::ops::ControlFlow::Break(value) => value,
-					};
+						})
+						.into_value();
 					[
 						t3_old.map(|(i3_old, t3_old)| (i3_old, t3_old, None)),
 						t3_new.map(|(i3_new, t3_new, t3tr_new)| (i3_new, t3_new, Some(t3tr_new))),
@@ -1731,7 +1437,7 @@ where
 				})
 				.map(move |(i2, t2, t2tr, i3, t3, t3tr)| {
 					let m1 = to_kou([(t1, t1tr), (t2, t2tr), (t3, t3tr)]);
-					let ts = GenericArray::try_from_iter(ts.into_iter().skip(1).enumerate().filter_map(|(i, t)| (i != i2 && i != i3).then_some(t)));
+					let ts = ts.into_iter().skip(1).enumerate().filter_map(|(i, t)| (i != i2 && i != i3).then_some(t)).next_chunk();
 					let ts = unsafe { ts.unwrap_unchecked() };
 					(m1, ts)
 				})
@@ -1778,7 +1484,7 @@ where
 		let shun_and_rests = {
 			// If t1 is an old tile, we only need one t2 that is an old tile and one t2 that is a new tile.
 			// If t1 is a new tile, then we only need one t2 that is an old tile.
-			let t2s =
+			let (t2_old, t2_new) =
 				ts.into_iter().skip(1).enumerate()
 				.try_fold((None, None), |(mut old, mut new), (i2, (t2, t2tr))| {
 					let Ok(t2) = NumberTile::try_from(t2) else { return core::ops::ControlFlow::Continue((old, new)); };
@@ -1795,12 +1501,8 @@ where
 					else {
 						core::ops::ControlFlow::Continue((old, new))
 					}
-				});
-			// TODO(rustup): Use `core::ops::ControlFlow::into_value` when that is stabilized.
-			let (t2_old, t2_new) = match t2s {
-				core::ops::ControlFlow::Continue(value) |
-				core::ops::ControlFlow::Break(value) => value,
-			};
+				})
+				.into_value();
 			[
 				t2_old.map(|(i2_old, t2_old)| (i2_old, t2_old, None)),
 				t2_new.map(|(i2_new, t2_new, t2tr_new)| (i2_new, t2_new, Some(t2tr_new))),
@@ -1809,7 +1511,7 @@ where
 				.flat_map(move |(i2, t2, t2tr)| {
 					// If t1 and t2 are old tiles, we only need one t3 that is an old tile and one t3 that is a new tile.
 					// If either t1 or t2 is a new tile, then we only need one t3 that is an old tile.
-					let t3s =
+					let (t3_old, t3_new) =
 						ts.into_iter().skip(1).enumerate()
 						.skip(i2 + 1)
 						.try_fold((None, None), |(mut old, mut new), (i3, (t3, t3tr))| {
@@ -1827,12 +1529,8 @@ where
 							else {
 								core::ops::ControlFlow::Continue((old, new))
 							}
-						});
-					// TODO(rustup): Use `core::ops::ControlFlow::into_value` when that is stabilized.
-					let (t3_old, t3_new) = match t3s {
-						core::ops::ControlFlow::Continue(value) |
-						core::ops::ControlFlow::Break(value) => value,
-					};
+						})
+						.into_value();
 					[
 						t3_old.map(|(i3_old, t3_old)| (i3_old, t3_old, None)),
 						t3_new.map(|(i3_new, t3_new, t3tr_new)| (i3_new, t3_new, Some(t3tr_new))),
@@ -1842,7 +1540,7 @@ where
 				})
 				.map(move |(i2, t2, t2tr, i3, t3, t3tr)| {
 					let m1 = to_shun([(t1, t1tr), (t2, t2tr), (t3, t3tr)]);
-					let ts = GenericArray::try_from_iter(ts.into_iter().skip(1).enumerate().filter_map(|(i, t)| (i != i2 && i != i3).then_some(t)));
+					let ts = ts.into_iter().skip(1).enumerate().filter_map(|(i, t)| (i != i2 && i != i3).then_some(t)).next_chunk();
 					let ts = unsafe { ts.unwrap_unchecked() };
 					(m1, ts)
 				})
@@ -1884,8 +1582,8 @@ fn to_meld([(t1, t1tr), (t2, t2tr), (t3, t3tr)]: [(Tile, Option<TsumoOrRon>); 3]
 }
 
 fn to_melds_2(ts: [(Tile, Option<TsumoOrRon>); 6]) -> impl Iterator<Item = (ScorableHandMeld, ScorableHandFourthMeld)> {
-	let mas = meld_and_rest(ts.into());
-	let mabs = Dedup::new(mas).filter_map(|(ma, ts)| to_meld(ts.into()).map(|mb| {
+	let mas = meld_and_rest(ts);
+	let mabs = Dedup::new(mas).filter_map(|(ma, ts)| to_meld(ts).map(|mb| {
 		if mb >= ma { (ma, mb) }
 		else { (mb, ma) }
 	}));
@@ -1904,12 +1602,12 @@ fn to_melds_2(ts: [(Tile, Option<TsumoOrRon>); 6]) -> impl Iterator<Item = (Scor
 }
 
 fn to_melds_3(ts: [(Tile, Option<TsumoOrRon>); 9]) -> impl Iterator<Item = ([ScorableHandMeld; 2], ScorableHandFourthMeld)> {
-	let mas = meld_and_rest(ts.into());
+	let mas = meld_and_rest(ts);
 	let mabs = Dedup::new(mas).flat_map(|(ma, ts)| meld_and_rest(ts).map(move |(mb, ts)| {
 		if mb >= ma { (ma, mb, ts) }
 		else { (mb, ma, ts) }
 	}));
-	let mabcs = Dedup::new(mabs).filter_map(|(ma, mb, ts)| to_meld(ts.into()).map(|mc| {
+	let mabcs = Dedup::new(mabs).filter_map(|(ma, mb, ts)| to_meld(ts).map(|mc| {
 		if mc >= mb { (ma, mb, mc) }
 		else if mc >= ma { (ma, mc, mb) }
 		else { (mc, ma, mb) }
@@ -1930,7 +1628,7 @@ fn to_melds_3(ts: [(Tile, Option<TsumoOrRon>); 9]) -> impl Iterator<Item = ([Sco
 }
 
 fn to_melds_4(ts: [(Tile, Option<TsumoOrRon>); 12]) -> impl Iterator<Item = ([ScorableHandMeld; 3], ScorableHandFourthMeld)> {
-	let mas = meld_and_rest(ts.into());
+	let mas = meld_and_rest(ts);
 	let mabs = mas.flat_map(|(ma, ts)| meld_and_rest(ts).map(move |(mb, ts)| {
 		if mb >= ma { (ma, mb, ts) }
 		else { (mb, ma, ts) }
@@ -1940,7 +1638,7 @@ fn to_melds_4(ts: [(Tile, Option<TsumoOrRon>); 12]) -> impl Iterator<Item = ([Sc
 		else if mc >= ma { (ma, mc, mb, ts) }
 		else { (mc, ma, mb, ts) }
 	}));
-	let mabcds = Dedup::new(mabcs).filter_map(|(ma, mb, mc, ts)| to_meld(ts.into()).map(|md| {
+	let mabcds = Dedup::new(mabcs).filter_map(|(ma, mb, mc, ts)| to_meld(ts).map(|md| {
 		if md >= mc { (ma, mb, mc, md) }
 		else if md >= mb { (ma, mb, md, mc) }
 		else if md >= ma { (ma, md, mb, mc) }
@@ -2309,7 +2007,7 @@ mod tests {
 	fn find_ankans() {
 		let h = make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m E E E G);
 		let mut ankans = h.find_ankans(t!(E));
-		assert_eq!(ankans.next().unwrap(), make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m G { ankan E E E E }));
+		assert!(matches!(ankans.next().unwrap(), make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m G { ankan E E E E })));
 		assert_eq!(ankans.next(), None);
 	}
 
@@ -2317,14 +2015,14 @@ mod tests {
 	fn find_daiminkan() {
 		let h = make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m E E E G);
 		let h = h.find_daiminkan(t!(E)).unwrap();
-		assert_eq!(h, make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m G { minkan E E E E }));
+		assert!(matches!(h, make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m G { minkan E E E E })));
 	}
 
 	#[test]
 	fn find_shouminkan() {
 		let h = make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m G { minkou E E E });
 		let mut shouminkans = h.find_shouminkans(t!(E));
-		assert_eq!(shouminkans.next().unwrap(), Hand(t![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m, G].into(), [make_hand!(@meld { minkan E E E E })].into()));
+		assert!(matches!(shouminkans.next().unwrap(), Hand(t![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m, G], [make_hand!(@meld { minkan E E E E })])));
 		assert_eq!(shouminkans.next(), None);
 	}
 
@@ -2337,15 +2035,20 @@ mod tests {
 			// 22m => 2C2 = 1
 			assert_eq!(minkous.size_hint(), (0, Some(1)));
 			let mut minkous = minkous.clone();
-			assert!(matches!(minkous.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m].into(), [make_hand!(@meld { minkou 2m 2m 2m })].into()) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minkous.next(), Some((Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m], [make_hand!(@meld { minkou 2m 2m 2m })]), allowed_discards)) if allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minkous.size_hint(), (0, Some(0)));
 			assert!(minkous.next().is_none());
 			assert_eq!(minkous.size_hint(), (0, Some(0)));
 		}
 
 		let hs: std::vec::Vec<_> = minkous.collect();
-		assert_eq!(hs.len(), 1);
-		assert!(hs[0].0 == Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m].into(), [make_hand!(@meld { minkou 2m 2m 2m })].into()) && hs[0].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		assert!(matches!(
+			&hs[..],
+			[
+				(Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m], [make_hand!(@meld { minkou 2m 2m 2m })]), allowed_discards),
+			] if
+				*allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+		));
 	}
 
 	#[test]
@@ -2357,27 +2060,36 @@ mod tests {
 			// 23506m => 5C2 = 10
 			assert_eq!(minjuns.size_hint(), (0, Some(10)));
 			let mut minjuns = minjuns.clone();
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()) && allowed_discards == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 2m 3m 4m })]), allowed_discards)) if allowed_discards == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(9)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 5m })].into()) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 5m })]), allowed_discards)) if allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(5)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 0m })].into()) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 0m })]), allowed_discards)) if allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(4)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 5m 6m })].into()) && allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 5m 6m })]), allowed_discards)) if allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(1)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 0m 6m })].into()) && allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 0m 6m })]), allowed_discards)) if allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(0)));
 			assert!(minjuns.next().is_none());
 			assert_eq!(minjuns.size_hint(), (0, Some(0)));
 		}
 
 		let hs: std::vec::Vec<_> = minjuns.collect();
-		assert_eq!(hs.len(), 5);
-		assert!(hs[0].0 == Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()) && hs[0].1 == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[1].0 == Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 5m })].into()) && hs[1].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[2].0 == Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 0m })].into()) && hs[2].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[3].0 == Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 5m 6m })].into()) && hs[3].1 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[4].0 == Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 0m 6m })].into()) && hs[4].1 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]);
+		assert!(matches!(
+			&hs[..],
+			[
+				(Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 2m 3m 4m })]), allowed_discards1),
+				(Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 5m })]), allowed_discards2),
+				(Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 0m })]), allowed_discards3),
+				(Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 5m 6m })]), allowed_discards4),
+				(Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 0m 6m })]), allowed_discards5),
+			] if
+				*allowed_discards1 == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] &&
+				*allowed_discards2 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] &&
+				*allowed_discards3 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] &&
+				*allowed_discards4 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10] &&
+				*allowed_discards5 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]
+		));
 	}
 
 	#[test]
@@ -2386,7 +2098,7 @@ mod tests {
 			let h = make_hand!(1m 1m 1m E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minkous(t!(1m)).collect();
 			for (h, allowed_discards) in hs {
-				assert_eq!(h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minkou 1m 1m 1m })].into()));
+				assert!(matches!(h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minkou 1m 1m 1m })])));
 				assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 			}
 		}
@@ -2395,7 +2107,7 @@ mod tests {
 			let h = make_hand!(1p 2p 3p E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(2p)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![2p, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 1p 2p 3p })].into()));
+			assert!(matches!(h, Hand(t![2p, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 1p 2p 3p })])));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2403,7 +2115,7 @@ mod tests {
 			let h = make_hand!(1s 2s 3s E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(1s)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 1s 2s 3s })].into()));
+			assert!(matches!(h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 1s 2s 3s })])));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2411,7 +2123,7 @@ mod tests {
 			let h = make_hand!(1s 2s 3s E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(1s)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 1s 2s 3s })].into()));
+			assert!(matches!(h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 1s 2s 3s })])));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2419,7 +2131,7 @@ mod tests {
 			let h = make_hand!(1m 2m 3m E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(4m)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()));
+			assert!(matches!(h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 2m 3m 4m })])));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2432,17 +2144,24 @@ mod tests {
 		{
 			let h = make_hand!(1m 2m 3m 4m 5m 6m E E E S S S W);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(4m)).collect();
-			assert_eq!(hs.len(), 3);
-			assert!(matches!(&hs[0], (h, allowed_discards) if *h == Hand(t![1m, 4m, 5m, 6m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()) && *allowed_discards == [2, 3, 4, 5, 6, 7, 8, 9, 10]));
-			assert!(matches!(&hs[1], (h, allowed_discards) if *h == Hand(t![1m, 2m, 4m, 6m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 3m 4m 5m })].into()) && *allowed_discards == [0, 1, 3, 4, 5, 6, 7, 8, 9, 10]));
-			assert!(matches!(&hs[2], (h, allowed_discards) if *h == Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 4m 5m 6m })].into()) && *allowed_discards == [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(
+				&hs[..],
+				[
+					(Hand(t![1m, 4m, 5m, 6m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 2m 3m 4m })]), allowed_discards1),
+					(Hand(t![1m, 2m, 4m, 6m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 3m 4m 5m })]), allowed_discards2),
+					(Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 4m 5m 6m })]), allowed_discards3),
+				] if
+					*allowed_discards1 == [2, 3, 4, 5, 6, 7, 8, 9, 10] &&
+					*allowed_discards2 == [0, 1, 3, 4, 5, 6, 7, 8, 9, 10] &&
+					*allowed_discards3 == [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]
+			));
 		}
 
 		{
 			let h = make_hand!(1m 2m 3m 4m 5m 6m E E E S S S W);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(7m)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 5m 6m 7m })].into()));
+			assert!(matches!(h, Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 5m 6m 7m })])));
 			assert_eq!(*allowed_discards, [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]);
 		}
 	}
