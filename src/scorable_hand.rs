@@ -786,28 +786,23 @@ impl IntoIterator for ScorableHand {
 
 	fn into_iter(self) -> Self::IntoIter {
 		let mut inner = [const { std::mem::MaybeUninit::uninit() }; 18];
-		let mut len = 0;
-		match self {
-			Self::Regular { melds: (ms, m4), pair } =>
-				for t in ms.into_iter().flatten().chain(ScorableHandMeld::from(m4)).chain(pair) {
-					inner[len].write(t);
-					len += 1;
-				},
+		let len = match self {
+			Self::Regular { melds: (ms, m4), pair } => {
+				let (ts, _) = inner.write_iter(ms.into_iter().flatten().chain(ScorableHandMeld::from(m4)).chain(pair));
+				ts.len()
+			},
 
-			Self::Chiitoi(ps) =>
-				for ScorableHandPair([t1, t2]) in ps {
-					inner[len].write(t1);
-					inner[len + 1].write(t2);
-					len += 2;
-				}
+			Self::Chiitoi(ps) => {
+				let (ts, _) = inner.write_iter(ps.into_iter().flatten());
+				ts.len()
+			},
 
-			Self::KokushiMusou { tiles, .. } =>
-				for t in tiles {
-					inner[len].write(t);
-					len += 1;
-				},
-		}
-		#[expect(clippy::cast_possible_truncation)]
+			Self::KokushiMusou { tiles, .. } => {
+				let ts = inner[..tiles.len()].write_copy_of_slice(&tiles);
+				ts.len()
+			},
+		};
+		#[expect(clippy::cast_possible_truncation)] // len <= 18
 		ScorableHandIntoIter { inner, range: 0..(len as u8) }
 	}
 }
@@ -849,6 +844,8 @@ impl DoubleEndedIterator for ScorableHandIntoIter {
 impl ExactSizeIterator for ScorableHandIntoIter {}
 
 impl std::iter::FusedIterator for ScorableHandIntoIter {}
+
+unsafe impl std::iter::TrustedLen for ScorableHandIntoIter {}
 
 impl ScorableHandMeld {
 	const fn is_menzen(self) -> bool {
@@ -1106,6 +1103,8 @@ impl DoubleEndedIterator for ScorableHandMeldIntoIter {
 impl ExactSizeIterator for ScorableHandMeldIntoIter {}
 
 impl std::iter::FusedIterator for ScorableHandMeldIntoIter {}
+
+unsafe impl std::iter::TrustedLen for ScorableHandMeldIntoIter {}
 
 impl ScorableHandFourthMeld {
 	const fn is_menzen(self) -> bool {
