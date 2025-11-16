@@ -1,5 +1,3 @@
-use generic_array::typenum;
-
 use crate::{
 	ArrayVec, ArrayVecIntoIter,
 	DragonTile,
@@ -699,7 +697,7 @@ impl core::fmt::Display for ScorableHand {
 
 impl IntoIterator for ScorableHand {
 	type Item = Tile;
-	type IntoIter = ArrayVecIntoIter<Tile, typenum::U18>;
+	type IntoIter = ArrayVecIntoIter<Tile, 18>;
 
 	fn into_iter(self) -> Self::IntoIter {
 		let mut inner = ArrayVec::new();
@@ -852,7 +850,7 @@ impl From<HandMeld> for ScorableHandMeld {
 	}
 }
 
-impl From<ScorableHandFourthMeld> for ScorableHandMeld {
+const impl From<ScorableHandFourthMeld> for ScorableHandMeld {
 	fn from(meld: ScorableHandFourthMeld) -> Self {
 		match meld {
 			ScorableHandFourthMeld::Tanki(m) => m,
@@ -930,7 +928,7 @@ impl Ord for ScorableHandMeld {
 				Minjun,
 			}
 
-			impl From<&ScorableHandMeld> for ScorableHandMeldDiscriminant {
+			const impl From<&ScorableHandMeld> for ScorableHandMeldDiscriminant {
 				fn from(m: &ScorableHandMeld) -> Self {
 					match m {
 						ScorableHandMeld::Ankan(_) => Self::Ankan,
@@ -993,6 +991,8 @@ impl ExactSizeIterator for ScorableHandMeldIntoIter {}
 
 impl core::iter::FusedIterator for ScorableHandMeldIntoIter {}
 
+unsafe impl core::iter::TrustedLen for ScorableHandMeldIntoIter {}
+
 impl ScorableHandFourthMeld {
 	const fn is_menzen(self) -> bool {
 		match self {
@@ -1044,7 +1044,7 @@ impl Ord for ScorableHandFourthMeld {
 			Shanpon(TsumoOrRon),
 		}
 
-		impl From<&ScorableHandFourthMeld> for ScorableHandFourthMeldDiscriminant {
+		const impl From<&ScorableHandFourthMeld> for ScorableHandFourthMeldDiscriminant {
 			// Doesn't get inlined by default and generates panicking code for the `Tanki` arm. Inlining allows rustc to notice the `Tanki` arm is unreachable and elide it.
 			#[inline]
 			fn from(m: &ScorableHandFourthMeld) -> Self {
@@ -1127,7 +1127,7 @@ impl ScorableHandPair {
 		}
 	}
 
-	pub(crate) fn num_yakuhai(self, round_wind: WindTile, seat_wind: WindTile) -> u8 {
+	pub(crate) const fn num_yakuhai(self, round_wind: WindTile, seat_wind: WindTile) -> u8 {
 		let t = self.0[0] as u8;
 		(u8::from(round_wind as u8 == t) + u8::from(seat_wind as u8 == t)) | u8::from(t >= t!(Wh) as u8)
 	}
@@ -1240,20 +1240,20 @@ impl core::fmt::Debug for ChantaRoutou {
 
 // It's easier to hard-code all the hands and check for equality rather than write code to inspect every meld and pair.
 const fn make_junsei_chuuren_poutou_hands(suit: NumberSuit) -> [ScorableHand; 27] {
-	let n1 = NumberTile::const_from(NumberTileClassified { suit, number: Number::One });
-	let t1 = Tile::const_from(n1);
-	let n2 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Two });
-	let t2 = Tile::const_from(n2);
-	let n3 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Three });
-	let n4 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Four });
-	let n5 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Five });
-	let t5 = Tile::const_from(n5);
-	let n6 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Six });
-	let n7 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Seven });
-	let n8 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Eight });
-	let t8 = Tile::const_from(n8);
-	let n9 = NumberTile::const_from(NumberTileClassified { suit, number: Number::Nine });
-	let t9 = Tile::const_from(n9);
+	let n1 = NumberTile::from(NumberTileClassified { suit, number: Number::One });
+	let t1 = n1.into();
+	let n2 = NumberTile::from(NumberTileClassified { suit, number: Number::Two });
+	let t2 = n2.into();
+	let n3 = NumberTile::from(NumberTileClassified { suit, number: Number::Three });
+	let n4 = NumberTile::from(NumberTileClassified { suit, number: Number::Four });
+	let n5 = NumberTile::from(NumberTileClassified { suit, number: Number::Five });
+	let t5 = n5.into();
+	let n6 = NumberTile::from(NumberTileClassified { suit, number: Number::Six });
+	let n7 = NumberTile::from(NumberTileClassified { suit, number: Number::Seven });
+	let n8 = NumberTile::from(NumberTileClassified { suit, number: Number::Eight });
+	let t8 = n8.into();
+	let n9 = NumberTile::from(NumberTileClassified { suit, number: Number::Nine });
+	let t9 = n9.into();
 	// The array is manually sorted so that the caller can use `.binary_search()`. The sort order is tested in the `make_junsei_chuuren_poutou_hands_sorted` test.
 	//
 	// TODO(rustup): If `ScorableHand: const PartialOrd`, `<[_]>::sort_unstable(): const fn`, etc happen, then this won't need to be manually sorted.
@@ -1289,6 +1289,7 @@ const fn make_junsei_chuuren_poutou_hands(suit: NumberSuit) -> [ScorableHand; 27
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 

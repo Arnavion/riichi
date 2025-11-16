@@ -1,5 +1,3 @@
-use generic_array::typenum;
-
 use crate::{
 	ArrayVec,
 	GameType,
@@ -283,11 +281,11 @@ impl Tile {
 	///
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
-	pub fn parse_run(s: &str) -> Result<(ArrayVec<Self, typenum::U13>, Option<HandMeldType>), ()> {
+	pub fn parse_run(s: &str) -> Result<(ArrayVec<Self, 13>, Option<HandMeldType>), ()> {
 		let mut result = ArrayVec::new();
 		let mut result_type = None;
 
-		let mut current_run = ArrayVec::<_, typenum::U13>::new();
+		let mut current_run = ArrayVec::<_, 13>::new();
 
 		for b in s.as_bytes() {
 			match b {
@@ -442,14 +440,6 @@ impl Tile {
 			t!(1m | 9m | 1p | 9p | 1s | 9s | E | S | W | N | Wh | G | R) => false,
 		}
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTile>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTile) -> Self {
-		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
-		//
-		// Tested exhaustively in the `number_tile_as_ref` test.
-		unsafe { *<*const _>::cast(&raw const t) }
-	}
 }
 
 impl core::fmt::Debug for Tile {
@@ -502,19 +492,19 @@ impl core::fmt::Display for Tile {
 	}
 }
 
-impl From<NumberTile> for Tile {
+const impl From<NumberTile> for Tile {
 	fn from(t: NumberTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<WindTile> for Tile {
+const impl From<WindTile> for Tile {
 	fn from(t: WindTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<DragonTile> for Tile {
+const impl From<DragonTile> for Tile {
 	fn from(t: DragonTile) -> Self {
 		*t.as_ref()
 	}
@@ -743,20 +733,9 @@ impl NumberTile {
 	pub(crate) fn is_next_in_sequence(self, previous: Self) -> bool {
 		previous.next_in_sequence() == Some(self)
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTileClassified>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTileClassified) -> Self {
-		let NumberTileClassified { suit, number } = t;
-		// Using a `match` for every combination is safer but generates branches based on `suit`
-		// that add constant 0x12 or 0x24 instead of the multiplication by 0x12 (via `lea` / `sh*add`), so we do it manually.
-		//
-		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
-		// and tested exhaustively in the `number_tile_convert_classified` test.
-		unsafe { core::mem::transmute((suit as u8) * 0x12 + (number as u8)) }
-	}
 }
 
-impl AsRef<Tile> for NumberTile {
+const impl AsRef<Tile> for NumberTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
 		//
@@ -777,9 +756,15 @@ impl core::fmt::Display for NumberTile {
 	}
 }
 
-impl From<NumberTileClassified> for NumberTile {
+const impl From<NumberTileClassified> for NumberTile {
 	fn from(t: NumberTileClassified) -> Self {
-		Self::const_from(t)
+		let NumberTileClassified { suit, number } = t;
+		// Using a `match` for every combination is safer but generates branches based on `suit`
+		// that add constant 0x12 or 0x24 instead of the multiplication by 0x12 (via `lea` / `sh*add`), so we do it manually.
+		//
+		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
+		// and tested exhaustively in the `number_tile_convert_classified` test.
+		unsafe { core::mem::transmute((suit as u8) * 0x12 + (number as u8)) }
 	}
 }
 
@@ -810,7 +795,7 @@ impl PartialOrd for NumberTile {
 	}
 }
 
-impl TryFrom<Tile> for NumberTile {
+const impl TryFrom<Tile> for NumberTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -850,7 +835,7 @@ impl TryFrom<Tile> for NumberTile {
 	}
 }
 
-impl AsRef<Tile> for WindTile {
+const impl AsRef<Tile> for WindTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `WindTile` is valid for `Tile`.
 		//
@@ -880,7 +865,7 @@ impl core::str::FromStr for WindTile {
 	}
 }
 
-impl TryFrom<Tile> for WindTile {
+const impl TryFrom<Tile> for WindTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -894,7 +879,7 @@ impl TryFrom<Tile> for WindTile {
 	}
 }
 
-impl AsRef<Tile> for DragonTile {
+const impl AsRef<Tile> for DragonTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `DragonTile` is valid for `Tile`.
 		//
@@ -924,7 +909,7 @@ impl core::str::FromStr for DragonTile {
 	}
 }
 
-impl TryFrom<Tile> for DragonTile {
+const impl TryFrom<Tile> for DragonTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -943,7 +928,7 @@ impl core::fmt::Display for NumberTileClassified {
 	}
 }
 
-impl From<NumberTile> for NumberTileClassified {
+const impl From<NumberTile> for NumberTileClassified {
 	fn from(t: NumberTile) -> Self {
 		Self { suit: t.suit(), number: t.number() }
 	}
@@ -1019,6 +1004,7 @@ impl PartialOrd for Number {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
