@@ -1,5 +1,3 @@
-use generic_array::typenum;
-
 use riichi::{
 	GameType,
 	HandStable,
@@ -36,7 +34,7 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 
 	let seat_wind = args.next().ok_or(())?.parse()?;
 
-	let (dead_wall, dead_wall_type) = Tile::parse_run::<typenum::U10>(&args.next().ok_or(())?)?;
+	let (dead_wall, dead_wall_type) = Tile::parse_run::<10>(&args.next().ok_or(())?)?;
 	if dead_wall_type.is_some() {
 		return Err(());
 	}

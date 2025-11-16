@@ -389,14 +389,14 @@ impl ScorableHandMeld {
 			Self::Ankou([t, ..]) => (4, t),
 			Self::Minkou([t, ..]) => (2, t),
 			Self::Anjun([t, ..]) |
-			Self::Minjun([t, ..]) => (0, Tile::const_from(t)),
+			Self::Minjun([t, ..]) => (0, t.into()),
 		};
-		Fu(base << (!t.is_simple() as u8))
+		Fu(base << u8::from(!t.is_simple()))
 	}
 }
 
 impl ScorableHandFourthMeld {
-	fn fu(self) -> (Fu, Fu) {
+	const fn fu(self) -> (Fu, Fu) {
 		let meld4 = ScorableHandMeld::from(self).fu();
 		let wait = match self {
 			Self::Tanki(_) |
@@ -411,12 +411,12 @@ impl ScorableHandFourthMeld {
 }
 
 impl ScorableHandPair {
-	fn fu(self, round_wind: WindTile, seat_wind: WindTile) -> Fu {
+	const fn fu(self, round_wind: WindTile, seat_wind: WindTile) -> Fu {
 		Fu(self.num_yakuhai(round_wind, seat_wind) * 2)
 	}
 }
 
-impl From<WinningTileFrom> for TsumoOrRon {
+impl const From<WinningTileFrom> for TsumoOrRon {
 	fn from(wtf: WinningTileFrom) -> Self {
 		match wtf {
 			WinningTileFrom::Haitei |
@@ -1023,6 +1023,7 @@ fn dora_match(doras: &[Tile], tile: Tile) -> u8 {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
