@@ -1,5 +1,3 @@
-use generic_array::ArrayLength;
-
 use crate::{
 	ArrayVec,
 	GameType,
@@ -20,7 +18,8 @@ use crate::{
 // but with the LSB set.
 
 /// A tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
 #[repr(u8)]
 pub enum Tile {
 	Man1 = 0x00,
@@ -73,7 +72,8 @@ pub enum Tile {
 }
 
 /// A number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
 #[repr(u8)]
 pub enum NumberTile {
 	Man1 = 0x00,
@@ -112,7 +112,8 @@ pub enum NumberTile {
 }
 
 /// A wind tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
 #[repr(u8)]
 pub enum WindTile {
 	/// East
@@ -126,7 +127,8 @@ pub enum WindTile {
 }
 
 /// A dragon tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
 #[repr(u8)]
 pub enum DragonTile {
 	/// White
@@ -138,14 +140,16 @@ pub enum DragonTile {
 }
 
 /// A number tile broken down into its suit and number.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
 pub struct NumberTileClassified {
 	pub suit: NumberSuit,
 	pub number: Number,
 }
 
 /// The suit of a number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
 #[repr(u8)]
 pub enum NumberSuit {
 	/// Characters
@@ -157,7 +161,8 @@ pub enum NumberSuit {
 }
 
 /// The value of a number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
 #[repr(u8)]
 pub enum Number {
 	One = 0x00,
@@ -173,7 +178,7 @@ pub enum Number {
 }
 
 /// A trait for comparing tiles based on treating `Five` and `FiveRed` tiles as equal.
-pub trait CmpIgnoreRed {
+pub const trait CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering;
 
 	fn eq_ignore_red(&self, other: &Self) -> bool {
@@ -299,8 +304,9 @@ impl Tile {
 	///
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
-	pub fn parse_run_until<N>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()> where N: ArrayLength {
-		#[derive(Clone, Copy, Debug)]
+	pub fn parse_run_until<const N: usize>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()> {
+		#[derive_const(Clone)]
+		#[derive(Copy, Debug)]
 		enum Op {
 			// An error variant is defined here because the alternative is `OPS: [Option<Op>; 256]` which ends up encoding `None::<Op>` as `0b03`.
 			// It's nicer to encode the error case as `0b00` since most of the table will be filled with that.
@@ -404,7 +410,7 @@ impl Tile {
 	/// assert_eq!(t!(2m).indicates_dora(GameType::Yonma), t!(3m));
 	/// assert_eq!(t!(1m).indicates_dora(GameType::Sanma), t!(9m));
 	/// ```
-	pub fn indicates_dora(self, game_type: GameType) -> Self {
+	pub const fn indicates_dora(self, game_type: GameType) -> Self {
 		// Micro-optimization: This generates branchless code and avoids the need for a LUT.
 		//
 		// Tested exhaustively in the `tile_indicates_dora` test.
@@ -432,17 +438,9 @@ impl Tile {
 		// Tested exhaustively in the `tile_is_simple` test.
 		(0b0000000_011111110_011111110_011111110_u64 & (1_u64 << ((self as u8) >> 1))) != 0
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTile>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from_nt(t: NumberTile) -> Self {
-		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
-		//
-		// Tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
-		unsafe { *<*const _>::cast(&raw const t) }
-	}
 }
 
-impl CmpIgnoreRed for Tile {
+impl const CmpIgnoreRed for Tile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -498,19 +496,19 @@ impl core::fmt::Display for Tile {
 	}
 }
 
-impl From<NumberTile> for Tile {
+impl const From<NumberTile> for Tile {
 	fn from(t: NumberTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<WindTile> for Tile {
+impl const From<WindTile> for Tile {
 	fn from(t: WindTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<DragonTile> for Tile {
+impl const From<DragonTile> for Tile {
 	fn from(t: DragonTile) -> Self {
 		*t.as_ref()
 	}
@@ -740,29 +738,18 @@ impl NumberTile {
 	pub(crate) fn is_next_in_sequence(self, previous: Self) -> bool {
 		previous.next_in_sequence().eq_ignore_red(&Some(self))
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTileClassified>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTileClassified) -> Self {
-		let NumberTileClassified { suit, number } = t;
-		// Using a `match` for every combination is safer but generates branches based on `suit`
-		// that add constant 0x12 or 0x24 instead of the multiplication by 0x12 (via `lea` / `sh*add`), so we do it manually.
-		//
-		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
-		// and tested exhaustively in the `number_tile_convert_classified` test.
-		unsafe { core::mem::transmute((suit as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + (number as u8 - Number::One as u8) + tn!(1m) as u8) }
-	}
 }
 
-impl AsRef<Tile> for NumberTile {
+impl const AsRef<Tile> for NumberTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
 		//
-		// Tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
+		// Tested exhaustively in the `number_tile_as_ref_and_from` test.
 		unsafe { &*<*const _>::cast(self) }
 	}
 }
 
-impl CmpIgnoreRed for NumberTile {
+impl const CmpIgnoreRed for NumberTile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -780,9 +767,15 @@ impl core::fmt::Display for NumberTile {
 	}
 }
 
-impl From<NumberTileClassified> for NumberTile {
+impl const From<NumberTileClassified> for NumberTile {
 	fn from(t: NumberTileClassified) -> Self {
-		Self::const_from(t)
+		let NumberTileClassified { suit, number } = t;
+		// Using a `match` for every combination is safer but generates branches based on `suit`
+		// that add constant 0x12 or 0x24 instead of the multiplication by 0x12 (via `lea` / `sh*add`), so we do it manually.
+		//
+		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
+		// and tested exhaustively in the `number_tile_convert_classified` test.
+		unsafe { core::mem::transmute((suit as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + (number as u8 - Number::One as u8) + tn!(1m) as u8) }
 	}
 }
 
@@ -802,7 +795,7 @@ impl SortingNetwork for NumberTile {
 	}
 }
 
-impl TryFrom<Tile> for NumberTile {
+impl const TryFrom<Tile> for NumberTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -818,7 +811,7 @@ impl TryFrom<Tile> for NumberTile {
 	}
 }
 
-impl AsRef<Tile> for WindTile {
+impl const AsRef<Tile> for WindTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `WindTile` is valid for `Tile`.
 		//
@@ -848,7 +841,7 @@ impl core::str::FromStr for WindTile {
 	}
 }
 
-impl TryFrom<Tile> for WindTile {
+impl const TryFrom<Tile> for WindTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -864,7 +857,7 @@ impl TryFrom<Tile> for WindTile {
 	}
 }
 
-impl AsRef<Tile> for DragonTile {
+impl const AsRef<Tile> for DragonTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `DragonTile` is valid for `Tile`.
 		//
@@ -894,7 +887,7 @@ impl core::str::FromStr for DragonTile {
 	}
 }
 
-impl TryFrom<Tile> for DragonTile {
+impl const TryFrom<Tile> for DragonTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -916,7 +909,7 @@ impl core::fmt::Display for NumberTileClassified {
 	}
 }
 
-impl From<NumberTile> for NumberTileClassified {
+impl const From<NumberTile> for NumberTileClassified {
 	fn from(t: NumberTile) -> Self {
 		Self { suit: t.suit(), number: t.number() }
 	}
@@ -944,7 +937,7 @@ impl Number {
 	}
 }
 
-impl CmpIgnoreRed for Number {
+impl const CmpIgnoreRed for Number {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -973,7 +966,7 @@ impl core::fmt::Display for Number {
 	}
 }
 
-impl<T> CmpIgnoreRed for Option<T> where T: CmpIgnoreRed {
+impl<T> const CmpIgnoreRed for Option<T> where T: [const] CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		match (self, other) {
 			(Some(this), Some(other)) => this.cmp_ignore_red(other),
@@ -984,7 +977,7 @@ impl<T> CmpIgnoreRed for Option<T> where T: CmpIgnoreRed {
 	}
 }
 
-impl<T, U> CmpIgnoreRed for (T, U) where T: CmpIgnoreRed, U: CmpIgnoreRed {
+impl<T, U> const CmpIgnoreRed for (T, U) where T: [const] CmpIgnoreRed, U: [const] CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		match self.0.cmp_ignore_red(&other.0) {
 			core::cmp::Ordering::Equal => self.1.cmp_ignore_red(&other.1),
@@ -993,7 +986,7 @@ impl<T, U> CmpIgnoreRed for (T, U) where T: CmpIgnoreRed, U: CmpIgnoreRed {
 	}
 }
 
-impl<T, U, V> CmpIgnoreRed for (T, U, V) where T: CmpIgnoreRed, U: CmpIgnoreRed, V: CmpIgnoreRed {
+impl<T, U, V> const CmpIgnoreRed for (T, U, V) where T: [const] CmpIgnoreRed, U: [const] CmpIgnoreRed, V: [const] CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		match self.0.cmp_ignore_red(&other.0) {
 			core::cmp::Ordering::Equal => match self.1.cmp_ignore_red(&other.1) {
@@ -1005,15 +998,15 @@ impl<T, U, V> CmpIgnoreRed for (T, U, V) where T: CmpIgnoreRed, U: CmpIgnoreRed,
 	}
 }
 
-impl<T, U, V, W, X, Y, Z> CmpIgnoreRed for (T, U, V, W, X, Y, Z)
+impl<T, U, V, W, X, Y, Z> const CmpIgnoreRed for (T, U, V, W, X, Y, Z)
 where
-	T: CmpIgnoreRed,
-	U: CmpIgnoreRed,
-	V: CmpIgnoreRed,
-	W: CmpIgnoreRed,
-	X: CmpIgnoreRed,
-	Y: CmpIgnoreRed,
-	Z: CmpIgnoreRed,
+	T: [const] CmpIgnoreRed,
+	U: [const] CmpIgnoreRed,
+	V: [const] CmpIgnoreRed,
+	W: [const] CmpIgnoreRed,
+	X: [const] CmpIgnoreRed,
+	Y: [const] CmpIgnoreRed,
+	Z: [const] CmpIgnoreRed,
 {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		match self.0.cmp_ignore_red(&other.0) {
@@ -1038,7 +1031,7 @@ where
 	}
 }
 
-impl<T> CmpIgnoreRed for [T] where T: CmpIgnoreRed {
+impl<T> const CmpIgnoreRed for [T] where T: [const] CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		// Match `[T]: PartialOrd` impl:
 		// 1. Elements are compared until unequal elements are found or one slice ends.
@@ -1064,6 +1057,7 @@ impl<T> CmpIgnoreRed for [T] where T: CmpIgnoreRed {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
