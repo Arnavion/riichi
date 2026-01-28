@@ -1,5 +1,3 @@
-use generic_array::typenum::U;
-
 use crate::{
 	ArrayVec,
 	CmpIgnoreRed,
@@ -28,7 +26,8 @@ use crate::{
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Eq, PartialEq)]
+#[derive(Copy, Ord, PartialOrd)]
 pub enum ScorableHand {
 	/// Regular hand shape containing four melds and one pair.
 	Regular(ScorableHandRegular),
@@ -60,7 +59,8 @@ pub enum ScorableHand {
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Eq, PartialEq)]
+#[derive(Copy, Ord, PartialOrd)]
 pub struct ScorableHandRegular {
 	pub melds: ([ScorableHandMeld; 3], ScorableHandFourthMeld),
 	pub pair: ScorableHandPair,
@@ -79,7 +79,8 @@ pub struct ScorableHandRegular {
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Eq, PartialEq)]
+#[derive(Copy, Ord, PartialOrd)]
 pub struct ScorableHandChiitoi(pub [ScorableHandPair; 7]);
 
 /// A single meld inside a [`ScorableHand`].
@@ -91,7 +92,8 @@ pub struct ScorableHandChiitoi(pub [ScorableHandPair; 7]);
 /// This type expects that its variant data is consistent. This means that there are not more of any one [`Tile`] than are present in a game.
 ///
 /// If this expectation is violated, the program may have undefined behavior.
-#[derive(Clone, Copy)]
+#[derive_const(Clone)]
+#[derive(Copy)]
 pub enum ScorableHandMeld {
 	/// Closed quad formed by kan.
 	///
@@ -137,7 +139,8 @@ pub enum ScorableHandMeld {
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq)]
+#[derive_const(Eq)]
+#[derive(Copy)]
 pub enum ScorableHandFourthMeld {
 	/// This meld was already complete. One of the tiles of the [`ScorableHand::Regular::pair`] was the wait.
 	Tanki(ScorableHandMeld),
@@ -207,7 +210,8 @@ pub enum ScorableHandFourthMeld {
 /// This type expects that its variant data is consistent. This means that there are not more of any one [`Tile`] than are present in a game.
 ///
 /// If this expectation is violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq)]
+#[derive_const(Eq)]
+#[derive(Copy)]
 pub struct ScorableHandPair(pub Tile);
 
 assert_size_of!(ScorableHand, 15);
@@ -515,6 +519,13 @@ impl ScorableHand {
 			Self::Chiitoi(_) |
 			Self::KokushiMusou { .. } => false,
 		}
+	}
+}
+
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl const Clone for ScorableHand {
+	fn clone(&self) -> Self {
+		*self
 	}
 }
 
@@ -871,7 +882,7 @@ impl ScorableHandRegular {
 			return 0;
 		}
 
-		let mut ts = ArrayVec::<_, U<18>>::new();
+		let mut ts = ArrayVec::<_, 18>::new();
 		self.for_each_tile(|t| unsafe { ts.push_unchecked(t); });
 		let mut ts = ts.into_iter();
 
@@ -905,6 +916,13 @@ impl ScorableHandRegular {
 		self.melds()
 			.filter(|&m| matches!(m, ScorableHandMeld::Ankan(_) | ScorableHandMeld::Minkan(_)))
 			.count() == 4
+	}
+}
+
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl const Clone for ScorableHandRegular {
+	fn clone(&self) -> Self {
+		*self
 	}
 }
 
@@ -944,6 +962,13 @@ impl ScorableHandChiitoi {
 	}
 }
 
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl const Clone for ScorableHandChiitoi {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
 impl core::fmt::Debug for ScorableHandChiitoi {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		core::fmt::Display::fmt(self, f)
@@ -965,7 +990,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Ankan`] using the given tiles.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid ankan.
-	pub fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
+	pub const fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
 		debug_assert!((t1, t2, t3).eq_ignore_red(&(t2, t3, t4)));
 
 		let tile = t1 as u8 | t2 as u8 | t3 as u8 | t4 as u8;
@@ -976,7 +1001,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Minkan`] using the given tiles.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid minkan.
-	pub fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
+	pub const fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
 		debug_assert!((t1, t2, t3).eq_ignore_red(&(t2, t3, t4)));
 
 		let tile = t1 as u8 | t2 as u8 | t3 as u8 | t4 as u8;
@@ -987,7 +1012,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Ankou`] using the given tiles.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid ankou.
-	pub fn ankou(t1: Tile, t2: Tile, t3: Tile) -> Self {
+	pub const fn ankou(t1: Tile, t2: Tile, t3: Tile) -> Self {
 		debug_assert!((t1, t2).eq_ignore_red(&(t2, t3)));
 
 		let tile = t1 as u8 | t2 as u8 | t3 as u8;
@@ -998,7 +1023,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Minkou`] using the given tiles.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid minkou.
-	pub fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Self {
+	pub const fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Self {
 		debug_assert!((t1, t2).eq_ignore_red(&(t2, t3)));
 
 		let tile = t1 as u8 | t2 as u8 | t3 as u8;
@@ -1009,7 +1034,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Anjun`] using the given tiles.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid anjun.
-	pub fn anjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
+	pub const fn anjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
 		debug_assert!(t1.shun_rest().eq_ignore_red(&(t2, t3)));
 
 		let has_five_red = t1.is_red() || t2.is_red() || t3.is_red();
@@ -1020,7 +1045,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Minjun`] using the given tiles.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid minjun.
-	pub fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
+	pub const fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
 		debug_assert!(t1.shun_rest().eq_ignore_red(&(t2, t3)));
 
 		let has_five_red = t1.is_red() || t2.is_red() || t3.is_red();
@@ -1100,19 +1125,19 @@ impl ScorableHandMeld {
 			Self::Ankou(t) |
 			Self::Minkou(t) => (0b0000000_011111110_011111110_011111110_u64, t),
 			Self::Anjun { tile, .. } |
-			Self::Minjun { tile, .. } => (0b0000000_000111110_000111110_000111110_u64, Tile::const_from_slt(tile)),
+			Self::Minjun { tile, .. } => (0b0000000_000111110_000111110_000111110_u64, tile.into()),
 		};
 		c & (1_u64 << ((t as u8) >> 1)) != 0
 	}
 
-	fn chanta_routou(self) -> ChantaRoutou {
+	const fn chanta_routou(self) -> ChantaRoutou {
 		let (t, is_shun) = match self {
 			Self::Ankan(t) |
 			Self::Minkan(t) |
 			Self::Ankou(t) |
 			Self::Minkou(t) => (t, false),
 			Self::Anjun { tile, .. } |
-			Self::Minjun { tile, .. } => (Tile::const_from_slt(tile), true),
+			Self::Minjun { tile, .. } => (tile.into(), true),
 		};
 
 		// Micro-optimization: Same trick as `Tile::is_simple`.
@@ -1141,7 +1166,7 @@ impl ScorableHandMeld {
 		)
 	}
 
-	fn num_wind_yakuhai(self, wind: WindTile, round_wind: WindTile, seat_wind: WindTile) -> u8 {
+	const fn num_wind_yakuhai(self, wind: WindTile, round_wind: WindTile, seat_wind: WindTile) -> u8 {
 		let tile = match self {
 			Self::Ankan(t) |
 			Self::Minkan(t) |
@@ -1155,7 +1180,7 @@ impl ScorableHandMeld {
 		u8::from(is_wind && wind == round_wind) + u8::from(is_wind && wind == seat_wind)
 	}
 
-	fn is_dragon_yakuhai(self, dragon: DragonTile) -> bool {
+	const fn is_dragon_yakuhai(self, dragon: DragonTile) -> bool {
 		let t = match self {
 			Self::Ankan(t) |
 			Self::Minkan(t) |
@@ -1171,7 +1196,7 @@ impl ScorableHandMeld {
 	/// [9 8 7 6 5 4 3][2 1 0]
 	//  [      t      ][  d  ]
 	#[expect(clippy::trivially_copy_pass_by_ref)] // Taking `self` as clippy recommends ends up generating loads of all the other bytes and shifts and generally terrible code.
-	pub(crate) fn sort_criteria(&self) -> u16 {
+	pub(crate) const fn sort_criteria(&self) -> u16 {
 		// To look nice when displaying a `ScorableHand`, we want to sort first based on the tiles, and only then on the type of meld.
 		// This means sorting the shun 123m before the kou 222m before the shun 234m.
 		//
@@ -1240,7 +1265,7 @@ impl From<HandMeld> for ScorableHandMeld {
 	}
 }
 
-impl From<ScorableHandFourthMeld> for ScorableHandMeld {
+impl const From<ScorableHandFourthMeld> for ScorableHandMeld {
 	fn from(meld: ScorableHandFourthMeld) -> Self {
 		// Micro-optimization: Inlining the `tsumo_or_ron` matches into the outer `match` generates a jump table for each `ScorableHandFourthMeld` discriminant.
 		// Doing it this way eliminates the jump table, and helps rustc notice the `Min*` discriminant can be formed by adding `tsumo_or_ron` to the `An*` discriminant.
@@ -1262,10 +1287,10 @@ impl From<ScorableHandFourthMeld> for ScorableHandMeld {
 	}
 }
 
-impl Eq for ScorableHandMeld {}
+impl const Eq for ScorableHandMeld {}
 
 /// `ScorableHandMeld`s differing only in the presence of akadora are considered equal.
-impl Ord for ScorableHandMeld {
+impl const Ord for ScorableHandMeld {
 	#[expect(clippy::unusual_byte_groupings)]
 	fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 		// We want to treat `Five` and `FiveRed`s the same so we set the LSB of each `Tile` field.
@@ -1277,20 +1302,21 @@ impl Ord for ScorableHandMeld {
 }
 
 /// `ScorableHandMeld`s differing only in the presence of akadora are considered equal.
-impl PartialEq for ScorableHandMeld {
+impl const PartialEq for ScorableHandMeld {
 	fn eq(&self, other: &Self) -> bool {
 		matches!(self.cmp(other), core::cmp::Ordering::Equal)
 	}
 }
 
 /// `ScorableHandMeld`s differing only in the presence of akadora are considered equal.
-impl PartialOrd for ScorableHandMeld {
+impl const PartialOrd for ScorableHandMeld {
 	fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 		Some(self.cmp(other))
 	}
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
 #[repr(u8)]
 enum ScorableHandMeldDiscriminant {
 	Ankan = 0,
@@ -1301,7 +1327,7 @@ enum ScorableHandMeldDiscriminant {
 	Minjun = 5,
 }
 
-impl From<&ScorableHandMeld> for ScorableHandMeldDiscriminant {
+impl const From<&ScorableHandMeld> for ScorableHandMeldDiscriminant {
 	fn from(m: &ScorableHandMeld) -> Self {
 		match m {
 			ScorableHandMeld::Ankan(_) => Self::Ankan,
@@ -1318,7 +1344,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a `ScorableHandFourthMeld::Shanpon` using the given tiles and `TsumoOrRon` flag.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid ankou.
-	pub fn shanpon(t1: Tile, t2: Tile, t3: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub const fn shanpon(t1: Tile, t2: Tile, t3: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		debug_assert!((t1, t2).eq_ignore_red(&(t2, t3)));
 
 		let tile = t1 as u8 | t2 as u8 | t3 as u8;
@@ -1329,7 +1355,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a `ScorableHandFourthMeld::Kanchan` using the given tiles and `TsumoOrRon` flag.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid anjun.
-	pub fn kanchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub const fn kanchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
 		debug_assert!(t1.shun_rest().eq_ignore_red(&(t2, t3)));
 
 		let has_five_red = t1.is_red() || t2.is_red() || t3.is_red();
@@ -1340,7 +1366,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a `ScorableHandFourthMeld::Penchan` using the given tiles and `TsumoOrRon` flag.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid anjun.
-	pub fn penchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub const fn penchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
 		debug_assert!(t1.shun_rest().eq_ignore_red(&(t2, t3)));
 
 		let has_five_red = t1.is_red() || t2.is_red() || t3.is_red();
@@ -1351,7 +1377,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a `ScorableHandFourthMeld::RyanmenLow` using the given tiles and `TsumoOrRon` flag.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid anjun.
-	pub fn ryanmen_low(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub const fn ryanmen_low(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
 		debug_assert!(t1.shun_rest().eq_ignore_red(&(t2, t3)));
 
 		let has_five_red = t1.is_red() || t2.is_red() || t3.is_red();
@@ -1362,7 +1388,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a `ScorableHandFourthMeld::RyanmenHigh` using the given tiles and `TsumoOrRon` flag.
 	///
 	/// For the sake of efficiency, this function does not check that the given tiles form a valid anjun.
-	pub fn ryanmen_high(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub const fn ryanmen_high(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Self {
 		debug_assert!(t1.shun_rest().eq_ignore_red(&(t2, t3)));
 
 		let has_five_red = t1.is_red() || t2.is_red() || t3.is_red();
@@ -1428,6 +1454,13 @@ impl ScorableHandFourthMeld {
 	}
 }
 
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl const Clone for ScorableHandFourthMeld {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
 impl core::fmt::Debug for ScorableHandFourthMeld {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		core::fmt::Display::fmt(self, f)
@@ -1455,7 +1488,7 @@ impl core::fmt::Display for ScorableHandFourthMeld {
 	}
 }
 
-impl Ord for ScorableHandFourthMeld {
+impl const Ord for ScorableHandFourthMeld {
 	fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 		// Just like `ScorableHandMeld::cmp`, this sorts by the first tile and then by the type of wait. See the comment in that function for details.
 		// However one difference to that function is that `Tanki` is sorted before the other waits.
@@ -1511,13 +1544,13 @@ impl Ord for ScorableHandFourthMeld {
 	}
 }
 
-impl PartialEq for ScorableHandFourthMeld {
+impl const PartialEq for ScorableHandFourthMeld {
 	fn eq(&self, other: &Self) -> bool {
 		matches!(self.cmp(other), core::cmp::Ordering::Equal)
 	}
 }
 
-impl PartialOrd for ScorableHandFourthMeld {
+impl const PartialOrd for ScorableHandFourthMeld {
 	fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 		Some(self.cmp(other))
 	}
@@ -1545,7 +1578,7 @@ impl ScorableHandPair {
 		self.0.is_simple()
 	}
 
-	fn chanta_routou(self) -> ChantaRoutou {
+	const fn chanta_routou(self) -> ChantaRoutou {
 		// Micro-optimization: Same trick as `Tile::is_simple`.
 
 		let offset = 1_u64 << (self.0 as u8 >> 1);
@@ -1561,8 +1594,15 @@ impl ScorableHandPair {
 		}
 	}
 
-	pub(crate) fn num_yakuhai(self, round_wind: WindTile, seat_wind: WindTile) -> u8 {
+	pub(crate) const fn num_yakuhai(self, round_wind: WindTile, seat_wind: WindTile) -> u8 {
 		(u8::from(self.0 == round_wind.into()) + u8::from(self.0 == seat_wind.into())) | u8::from(self.0 >= t!(Wh))
+	}
+}
+
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl const Clone for ScorableHandPair {
+	fn clone(&self) -> Self {
+		*self
 	}
 }
 
@@ -1581,19 +1621,19 @@ impl core::fmt::Display for ScorableHandPair {
 	}
 }
 
-impl Ord for ScorableHandPair {
+impl const Ord for ScorableHandPair {
 	fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 		self.0.cmp_ignore_red(&other.0)
 	}
 }
 
-impl PartialEq for ScorableHandPair {
+impl const PartialEq for ScorableHandPair {
 	fn eq(&self, other: &Self) -> bool {
 		matches!(self.cmp(other), core::cmp::Ordering::Equal)
 	}
 }
 
-impl PartialOrd for ScorableHandPair {
+impl const PartialOrd for ScorableHandPair {
 	fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 		Some(self.cmp(other))
 	}
@@ -1619,7 +1659,8 @@ impl PartialOrd for ScorableHandPair {
 // All | All = All
 //
 // Tested exhaustively in the `chanta_routou` test.
-#[derive(Clone, Copy)]
+#[derive_const(Clone)]
+#[derive(Copy)]
 pub(crate) struct ChantaRoutou(u8);
 
 #[expect(clippy::unusual_byte_groupings)]
@@ -1644,7 +1685,7 @@ impl ChantaRoutou {
 	const fn is_other(self) -> bool { self.0 >= 0b1_0_00 }
 }
 
-impl core::ops::BitOr for ChantaRoutou {
+impl const core::ops::BitOr for ChantaRoutou {
 	type Output = ChantaRoutou;
 
 	fn bitor(self, rhs: Self) -> Self::Output {
@@ -1667,7 +1708,8 @@ impl core::fmt::Debug for ChantaRoutou {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive_const(Clone)]
+#[derive(Copy)]
 pub(crate) enum NumAnkou {
 	Neither,
 	Sanankou,
@@ -1681,7 +1723,7 @@ impl NumAnkou {
 
 	pub(crate) const fn num_suuankou(self) -> u8 {
 		if let Self::Suuankou { is_tanki_wait } = self {
-			1 + (is_tanki_wait as u8)
+			1 + u8::from(is_tanki_wait)
 		}
 		else {
 			0
@@ -1689,7 +1731,8 @@ impl NumAnkou {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive_const(Clone)]
+#[derive(Copy)]
 pub(crate) enum Honchinitsu {
 	Chinitsu = 0,
 	Honitsu = 1,
@@ -1706,7 +1749,8 @@ impl Honchinitsu {
 	}
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
 #[repr(transparent)]
 struct JunseiChuurenPoutoutScorableHandRegular(u32);
 
@@ -1728,11 +1772,11 @@ enum JunseiChuurenPoutoutScorableHandFourthMeld {
 impl JunseiChuurenPoutoutScorableHandRegular {
 	const fn new([n1, n2, n3, n4, n5]: [Number; 5], [m1, m2, m3]: [JunseiChuurenPoutoutScorableHandMeld; 3], m4: JunseiChuurenPoutoutScorableHandFourthMeld) -> Self {
 		let inner =
-			(((n1.value() - 1) as u32) << 22) |
-			(((n2.value() - 1) as u32) << 18) |
-			(((n3.value() - 1) as u32) << 14) |
-			(((n4.value() - 1) as u32) << 10) |
-			(((n5.value() - 1) as u32) << 6) |
+			(u32::from(n1.value() - 1) << 22) |
+			(u32::from(n2.value() - 1) << 18) |
+			(u32::from(n3.value() - 1) << 14) |
+			(u32::from(n4.value() - 1) << 10) |
+			(u32::from(n5.value() - 1) << 6) |
 			((m1 as u32) << 5) |
 			((m2 as u32) << 4) |
 			((m3 as u32) << 3) |
@@ -1820,7 +1864,7 @@ const fn make_junsei_chuuren_poutou_hands() -> [JunseiChuurenPoutoutScorableHand
 	let n9 = Number::Nine;
 	// The array is manually sorted so that the caller can use `.binary_search()`. The sort order is tested in the `make_junsei_chuuren_poutou_hands_sorted` test.
 	//
-	// TODO(rustup): If `ScorableHand: const PartialOrd`, `<[_]>::sort_unstable_by_key(): const fn`, etc happen, then this won't need to be manually sorted.
+	// TODO(rustup): If `<[_]>::sort_unstable_by_key(): const fn`, etc happen, then this won't need to be manually sorted.
 	[
 		JunseiChuurenPoutoutScorableHandRegular::new([n1, n2, n5, n7, n9], [Ankou, Anjun, Anjun], Penchan),
 		JunseiChuurenPoutoutScorableHandRegular::new([n1, n2, n5, n9, n8], [Ankou, Anjun, Anjun], TankiAnkou),
@@ -1841,6 +1885,7 @@ const fn make_junsei_chuuren_poutou_hands() -> [JunseiChuurenPoutoutScorableHand
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
