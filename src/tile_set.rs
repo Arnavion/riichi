@@ -9,13 +9,13 @@ use crate::{
 /// See the pre-defined aliases [`Tile27Set`] and [`Tile34Set`].
 pub struct TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	present: u64,
 	element: core::marker::PhantomData<TElement>,
 }
 
-pub trait TileSetElement {
+pub const trait TileSetElement {
 	type Tile: Copy + core::fmt::Debug + 'static;
 	const N: usize;
 
@@ -30,35 +30,28 @@ pub trait TileSetElement {
 
 impl<TElement> TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
-	pub const fn new() -> Self {
-		Self {
-			present: 0,
-			element: core::marker::PhantomData,
-		}
-	}
-
-	pub fn all(game_type: GameType) -> Self {
+	pub const fn all(game_type: GameType) -> Self {
 		match game_type {
-			GameType::Yonma => tile_set_all_yonma(),
-			GameType::Sanma => tile_set_all_sanma(),
+			GameType::Yonma => const { tile_set_all_yonma() },
+			GameType::Sanma => const { tile_set_all_sanma() },
 		}
 	}
 
 	pub const fn is_empty(&self) -> bool {
-		self.present == 0
+		*self == Self::default()
 	}
 
 	/// Gets the number of occurences of the given tile in this set.
-	pub fn contains(&self, tile: TElement::Tile) -> bool {
+	pub const fn contains(&self, tile: TElement::Tile) -> bool {
 		self.tile_to_present_ref(tile)
 	}
 
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `false` when the tile was already present in the set.
-	pub fn insert(&mut self, tile: TElement::Tile) -> bool {
+	pub const fn insert(&mut self, tile: TElement::Tile) -> bool {
 		let mut count = self.tile_to_present_mut(tile);
 		if count.get() {
 			false
@@ -86,19 +79,19 @@ where
 	/// Removes the given tile from this set.
 	///
 	/// Returns `true` if this tile existed in the set, `false` otherwise.
-	pub fn remove(&mut self, tile: TElement::Tile) -> bool {
+	pub const fn remove(&mut self, tile: TElement::Tile) -> bool {
 		let mut count = self.tile_to_present_mut(tile);
 		let result = count.get();
 		count.set(false);
 		result
 	}
 
-	fn tile_to_present_ref(&self, tile: TElement::Tile) -> bool {
+	const fn tile_to_present_ref(&self, tile: TElement::Tile) -> bool {
 		let offset = TElement::tile_to_offset(tile);
 		self.present & (0b1 << offset) != 0
 	}
 
-	fn tile_to_present_mut(&mut self, tile: TElement::Tile) -> U1Mut<'_> {
+	const fn tile_to_present_mut(&mut self, tile: TElement::Tile) -> U1Mut<'_> {
 		let offset = TElement::tile_to_offset(tile);
 		U1Mut {
 			present: &mut self.present,
@@ -107,9 +100,9 @@ where
 	}
 }
 
-impl<TElement> Clone for TileSet<TElement>
+impl<TElement> const Clone for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -121,7 +114,7 @@ where
 
 impl<TElement> core::fmt::Debug for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 	Self: Clone + IntoIterator<Item = TElement::Tile>,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -129,18 +122,21 @@ where
 	}
 }
 
-impl<TElement> Default for TileSet<TElement>
+impl<TElement> const Default for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	fn default() -> Self {
-		Self::new()
+		Self {
+			present: 0,
+			element: core::marker::PhantomData,
+		}
 	}
 }
 
 impl<TElement> FromIterator<TElement::Tile> for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = TElement::Tile> {
 		let mut result = Self::default();
@@ -153,7 +149,7 @@ where
 
 impl<TElement> IntoIterator for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 	TileSetIntoIter<TElement>: Iterator,
 {
 	type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
@@ -167,23 +163,23 @@ where
 	}
 }
 
-impl<TElement> PartialEq for TileSet<TElement>
+impl<TElement> const PartialEq for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	fn eq(&self, other: &Self) -> bool {
 		self.present == other.present
 	}
 }
 
-impl<TElement> Eq for TileSet<TElement>
+impl<TElement> const Eq for TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {}
 
-fn tile_set_all_yonma<TElement>() -> TileSet<TElement>
+const fn tile_set_all_yonma<TElement>() -> TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	let tiles = TElement::all_yonma();
 
@@ -198,9 +194,9 @@ where
 	result
 }
 
-fn tile_set_all_sanma<TElement>() -> TileSet<TElement>
+const fn tile_set_all_sanma<TElement>() -> TileSet<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	let tiles = TElement::all_sanma();
 
@@ -217,15 +213,15 @@ where
 
 pub struct TileSetIntoIter<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	present: u64,
 	element: core::marker::PhantomData<TElement>,
 }
 
-impl<TElement> Clone for TileSetIntoIter<TElement>
+impl<TElement> const Clone for TileSetIntoIter<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -237,7 +233,7 @@ where
 
 impl<TElement> core::fmt::Debug for TileSetIntoIter<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("TileSetIntoIter").finish_non_exhaustive()
@@ -246,7 +242,7 @@ where
 
 impl<TElement> Iterator for TileSetIntoIter<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {
 	type Item = TElement::Tile;
 
@@ -269,7 +265,7 @@ where
 
 impl<TElement> core::iter::FusedIterator for TileSetIntoIter<TElement>
 where
-	TElement: TileSetElement,
+	TElement: const TileSetElement,
 {}
 
 /// A set specialized to hold [`NumberTile`]s in a compact non-allocating representation.
@@ -280,10 +276,11 @@ pub type Tile27Set = TileSet<Tile27SetElement>;
 
 assert_size_of!(Tile27Set, 8);
 
-#[derive(Clone, Copy, Debug)]
+#[derive_const(Clone)]
+#[derive(Copy, Debug)]
 pub struct Tile27SetElement;
 
-impl TileSetElement for Tile27SetElement {
+impl const TileSetElement for Tile27SetElement {
 	type Tile = NumberTile;
 	const N: usize = 27_usize;
 
@@ -316,10 +313,11 @@ pub type Tile34Set = TileSet<Tile34SetElement>;
 
 assert_size_of!(Tile34Set, 8);
 
-#[derive(Clone, Copy, Debug)]
+#[derive_const(Clone)]
+#[derive(Copy, Debug)]
 pub struct Tile34SetElement;
 
-impl TileSetElement for Tile34SetElement {
+impl const TileSetElement for Tile34SetElement {
 	type Tile = Tile;
 	const N: usize = 34_usize;
 
@@ -357,11 +355,12 @@ impl U1Mut<'_> {
 	}
 
 	const fn set(&mut self, value: bool) {
-		*self.present = *self.present & !(0b1 << self.offset) | ((value as u64) << self.offset);
+		*self.present = *self.present & !(0b1 << self.offset) | (u64::from(value) << self.offset);
 	}
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 

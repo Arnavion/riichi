@@ -1,11 +1,9 @@
-use generic_array::typenum::U;
-
 use riichi::{
 	GameType,
 	HandStable,
 	Riichi,
 	ScoreAggregate, SeatRelative,
-	Tile, Tile34MultiSet,
+	Tile,
 	WinningTileFrom,
 	max_score,
 };
@@ -61,7 +59,7 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 
 	let seat_wind = args.next().ok_or(())?.parse()?;
 
-	let (dead_wall, dead_wall_type, _) = Tile::parse_run_until::<U<10>>(args.next().ok_or(())?.as_ref(), None)?;
+	let (dead_wall, dead_wall_type, _) = Tile::parse_run_until::<10>(args.next().ok_or(())?.as_ref(), None)?;
 	if dead_wall_type.is_some() {
 		return Err(());
 	}
@@ -147,7 +145,9 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 			_ = writeln!(stdout, "Absolute points: {points_absolute}");
 		}
 
-		let other_waits: Tile34MultiSet = hand.tenpai(game_type).filter(|&t| t != winning_tile).collect();
+		// TODO(rustup): Want to use `let other_waits: Tile34MultiSet` but this causes an "overflow evaluating the requirement" due to `generic_const_exprs`.
+		// Ref: https://github.com/rust-lang/rust/issues/145069
+		let other_waits: Vec<_> = hand.tenpai(game_type).filter(|&t| t != winning_tile).collect();
 		if other_waits.is_empty() {
 			return Ok(());
 		}
@@ -157,14 +157,16 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 		other_waits
 	}
 	else {
-		let waits: Tile34MultiSet = hand.tenpai(game_type).collect();
+		// TODO(rustup): Want to use `let other_waits: Tile34MultiSet` but this causes an "overflow evaluating the requirement" due to `generic_const_exprs`.
+		// Ref: https://github.com/rust-lang/rust/issues/145069
+		let waits: Vec<_> = hand.tenpai(game_type).collect();
 		if waits.is_empty() {
 			_ = writeln!(stdout, "No yaku");
 			return Ok(());
 		}
 		waits
 	};
-	for (winning_tile, _) in other_waits {
+	for winning_tile in other_waits {
 		_ = writeln!(stdout, "+ {winning_tile}");
 		let hands = hand.to_scorable_hands(winning_tile, winning_tile_from.into());
 		let score = max_score(
