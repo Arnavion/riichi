@@ -1,14 +1,3 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	sequence::{Concat as _, Remove},
-	typenum::{
-		Diff,
-		Sum,
-		B1, U0, U1, U2, U3, U4, U5, U7, U8, U10, U11, U13, U14,
-	},
-};
-
 use crate::{
 	ArrayVec, ArrayVecIntoCombinations,
 	CmpIgnoreRed,
@@ -42,14 +31,12 @@ use crate::{
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Eq, PartialEq)]
-pub struct Hand<NT, NM>(
-	pub GenericArray<Tile, NT>,
-	pub GenericArray<HandMeld, NM>,
-) where
-	NT: ArrayLength,
-	NM: ArrayLength,
-;
+#[derive(Copy)]
+#[derive_const(Eq, PartialEq)]
+pub struct Hand<const NT: usize, const NM: usize>(
+	pub [Tile; NT],
+	pub [HandMeld; NM],
+);
 
 /// A single meld inside a [`Hand`].
 ///
@@ -68,7 +55,8 @@ pub struct Hand<NT, NM>(
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Copy)]
+#[derive_const(Eq, PartialEq)]
 pub enum HandMeld {
 	/// Closed quad formed by kan.
 	///
@@ -95,22 +83,23 @@ pub enum HandMeld {
 /// A hand containing some number of tiles and melds when it's not the player's turn.
 ///
 /// This enum is a way to hold all possible stable hand types during a game.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum HandStable {
 	/// A hand containing 1 tile and 4 melds.
-	One(Hand<U1, U4>),
+	One(Hand<1, 4>),
 
 	/// A hand containing 4 tiles and 3 melds.
-	Four(Hand<U4, U3>),
+	Four(Hand<4, 3>),
 
 	/// A hand containing 7 tiles and 2 melds.
-	Seven(Hand<U7, U2>),
+	Seven(Hand<7, 2>),
 
 	/// A hand containing 10 tiles and 1 meld.
-	Ten(Hand<U10, U1>),
+	Ten(Hand<10, 1>),
 
 	/// A hand containing 13 tiles.
-	Thirteen(Hand<U13, U0>),
+	Thirteen(Hand<13, 0>),
 }
 
 /// A hand containing some number of tiles and melds when it's the player's turn.
@@ -118,93 +107,67 @@ pub enum HandStable {
 /// to return to a [`HandStable`].
 ///
 /// This enum is a way to hold all possible tentative hand types during a game.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum HandTentative {
 	/// A hand containing 2 tiles and 4 melds.
-	Two(Hand<U2, U4>),
+	Two(Hand<2, 4>),
 
 	/// A hand containing 5 tiles and 3 melds.
-	Five(Hand<U5, U3>),
+	Five(Hand<5, 3>),
 
 	/// A hand containing 8 tiles and 2 melds.
-	Eight(Hand<U8, U2>),
+	Eight(Hand<8, 2>),
 
 	/// A hand containing 11 tiles and 1 meld.
-	Eleven(Hand<U11, U1>),
+	Eleven(Hand<11, 1>),
 
 	/// A hand containing 14 tiles.
-	Fourteen(Hand<U14, U0>),
+	Fourteen(Hand<14, 0>),
 }
 
-assert_size_of!(Hand<U1, U4>, 9);
-assert_size_of!(Hand<U2, U4>, 10);
-assert_size_of!(Hand<U4, U3>, 10);
-assert_size_of!(Hand<U5, U3>, 11);
-assert_size_of!(Hand<U7, U2>, 11);
-assert_size_of!(Hand<U8, U2>, 12);
-assert_size_of!(Hand<U10, U1>, 12);
-assert_size_of!(Hand<U11, U1>, 13);
-assert_size_of!(Hand<U13, U0>, 13);
-assert_size_of!(Hand<U14, U0>, 14);
+assert_size_of!(Hand<1, 4>, 9);
+assert_size_of!(Hand<2, 4>, 10);
+assert_size_of!(Hand<4, 3>, 10);
+assert_size_of!(Hand<5, 3>, 11);
+assert_size_of!(Hand<7, 2>, 11);
+assert_size_of!(Hand<8, 2>, 12);
+assert_size_of!(Hand<10, 1>, 12);
+assert_size_of!(Hand<11, 1>, 13);
+assert_size_of!(Hand<13, 0>, 13);
+assert_size_of!(Hand<14, 0>, 14);
 assert_size_of!(HandMeld, 2);
 
-impl<NT, NM> Hand<NT, NM>
+impl<const NT: usize, const NM: usize> Hand<NT, NM>
 where
-	NT: ArrayLength + core::ops::Add<U1, Output: ArrayLength> + core::ops::Sub<U3, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<Tile, Sum<NT, U1>>: Copy,
 	HandStable: From<Self>,
 {
 	/// Find all possible ankans (quad via kan call on a quad held in the hand).
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
-	pub fn find_ankans(self, new_tile: Tile) -> Ankans<Sum<NT, U1>, NM> {
+	pub fn find_ankans(self, new_tile: Tile) -> Ankans<{ NT + 1 }, NM> {
 		let Self(ts, ms) = self;
-		let ts = ts.concat([new_tile].into());
+		let ts = append(ts, new_tile);
 		Ankans::new(Hand(ts, ms))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<U3, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<Tile, NT>: Copy,
-	HandStable: From<Self>,
-{
 	/// Find a possible daiminkan (quad via kan call on a triplet held in the hand) using the given new tile.
 	///
 	/// Returns the `Hand<{ NT - 3 }, NT + 1 }>` that would result from this call, if any.
-	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<Diff<NT, U3>, Sum<NM, U1>>> {
+	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<{ NT - 3 }, { NM + 1 }>> {
 		let Self(ts, ms) = self;
-		find_daiminkan(ts, new_tile).map(move |(ts, m_new)| Hand(ts, ms.concat([m_new].into())))
+		find_daiminkan(ts, new_tile).map(move |(ts, m_new)| Hand(ts, append(ms, m_new)))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	NM: ArrayLength,
-	GenericArray<Tile, Sum<NT, U1>>: Copy,
-	HandStable: From<Self>,
-{
 	/// Find all possible shouminkans (quad via kan call on a minkou formed previously).
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
-	pub fn find_shouminkans(self, new_tile: Tile) -> Shouminkans<Sum<NT, U1>, NM> {
+	pub fn find_shouminkans(self, new_tile: Tile) -> Shouminkans<{ NT + 1 }, NM> {
 		let Self(ts, ms) = self;
-		let ts = ts.concat([new_tile].into());
+		let ts = append(ts, new_tile);
 		Shouminkans::new(Hand(ts, ms))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	HandStable: From<Self>,
-{
 	/// Find all possible minkous (triplet via pon call) using the given new tile.
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
@@ -220,48 +183,35 @@ where
 	}
 }
 
-impl<NT, NM> Hand<NT, NM>
+impl<const NT: usize, const NM: usize> Hand<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<B1, Output: ArrayLength>,
-	GenericArray<Tile, NT>: Remove<Tile, NT, Output = GenericArray<Tile, Diff<NT, B1>>>,
-	NM: ArrayLength,
 	HandTentative: From<Hand<NT, NM>>,
 {
 	/// Discard the tile at the given index from this hand.
 	///
 	/// Returns the `Hand<{ NT - 1 }, NM>` resulting from the discard of that tile, and the discarded tile.
-	pub fn discard(self, i: usize) -> (Hand<Diff<NT, B1>, NM>, Tile) {
+	///
+	/// # Panics
+	///
+	/// Panics if the given index is not within bounds.
+	pub fn discard(self, i: usize) -> (Hand<{ NT - 1 }, NM>, Tile) {
 		let Self(ts, ms) = self;
-		let (t_discard, ts) = ts.remove(i);
+		let t_discard = ts[i];
+		// SAFETY: `i` is guaranteed to be within the bounds of `ts` by the assignment of `t_discard`.
+		let ts = unsafe { except(&ts, [i]) };
 		(Hand(ts, ms), t_discard)
 	}
 }
 
-#[expect(clippy::expl_impl_clone_on_copy)]
-impl<NT, NM> Clone for Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl<const NT: usize, const NM: usize> const Clone for Hand<NT, NM> {
 	fn clone(&self) -> Self {
 		*self
 	}
 }
 
-impl<NT, NM> Copy for Hand<NT, NM>
+impl<const NT: usize, const NM: usize> core::fmt::Debug for Hand<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{}
-
-impl<NT, NM> core::fmt::Debug for Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
 	Hand<NT, NM>: core::fmt::Display,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -269,11 +219,7 @@ where
 	}
 }
 
-impl<NT, NM> core::fmt::Display for Hand<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+impl<const NT: usize, const NM: usize> core::fmt::Display for Hand<NT, NM> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let Self(ts, ms) = self;
 		if let Some((t1, ts_rest)) = ts.split_first() {
@@ -295,7 +241,7 @@ where
 	}
 }
 
-impl Hand<U1, U4> {
+impl Hand<1, 4> {
 	/// Add the given drawn / called tile to this hand and convert it into a [`ScorableHand`] if one exists.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -305,11 +251,10 @@ impl Hand<U1, U4> {
 	///
 	/// Returns `None` if a scorable hand cannot be formed with the new tile.
 	pub fn to_scorable_hand(self, new_tile: Tile) -> Option<ScorableHand> {
-		let Self(ts, ms) = self;
-		let [t1] = ts.into();
+		let Self([t1], ms) = self;
 
 		let pair = ScorableHandPair::new(t1, new_tile)?;
-		let [ma, mb, mc, md] = <[HandMeld; _]>::from(ms).map(Into::into);
+		let [ma, mb, mc, md] = ms.map(Into::into);
 		Some(ScorableHand::Regular(ScorableHandRegular::new(ma, mb, mc, ScorableHandFourthMeld::Tanki(md), pair)))
 	}
 
@@ -325,13 +270,12 @@ impl Hand<U1, U4> {
 		// - https://mahjongsoul.game.yo-star.com/?paipu=190508-4ebd32bc-71a5-4f4f-86a7-16066dfdc896_a925124703 ( https://riichi.wiki/index.php?title=File:Keishiki_ankan.png&oldid=20048 )
 		//   from https://riichi.wiki/index.php?title=Karaten&oldid=27447
 
-		let Self(ts, _) = self;
-		let [t1] = ts.into();
+		let Self([t1], _) = self;
 		t1.remove_red()
 	}
 }
 
-impl Hand<U4, U3> {
+impl Hand<4, 3> {
 	/// Add the given drawn / called tile to this hand and convert it into an `Iterator` of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -357,7 +301,7 @@ impl Hand<U4, U3> {
 		let Self(ts, ms) = self;
 		let lookup = Lookup::new(Keys::default().push_all(ts).push(new_tile));
 		let lookup = LookupForNewTile::new(lookup, new_tile, tsumo_or_ron);
-		let [ma, mb, mc] = <[HandMeld; _]>::from(ms).map(Into::into);
+		let [ma, mb, mc] = ms.map(Into::into);
 		Hand4ScorableHands { lookup, ma, mb, mc }
 	}
 
@@ -384,7 +328,7 @@ impl Hand<U4, U3> {
 
 #[derive(Clone, Debug)]
 pub struct Hand4ScorableHands {
-	lookup: LookupForNewTile<U0>,
+	lookup: LookupForNewTile<0>,
 	ma: ScorableHandMeld,
 	mb: ScorableHandMeld,
 	mc: ScorableHandMeld,
@@ -396,8 +340,7 @@ impl Iterator for Hand4ScorableHands {
 	type Item = ScorableHand;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let (ms, md, pair) = self.lookup.next()?;
-		let [] = ms.into();
+		let ([], md, pair) = self.lookup.next()?;
 		Some(ScorableHand::Regular(ScorableHandRegular::new(self.ma, self.mb, self.mc, md, pair)))
 	}
 
@@ -411,7 +354,7 @@ impl core::iter::FusedIterator for Hand4ScorableHands {}
 #[derive(Clone, Debug)]
 pub struct Hand4Tenpai {
 	tiles: core::slice::Iter<'static, Tile>,
-	keys: Keys<U4>,
+	keys: Keys<4>,
 }
 
 assert_size_of!(Hand4Tenpai, 40);
@@ -422,7 +365,7 @@ impl Iterator for Hand4Tenpai {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			let new_tile = *self.tiles.next()?;
-			if Lookup::<U1>::new(self.keys.clone().push(new_tile)).next().is_some() {
+			if Lookup::<1>::new(self.keys.clone().push(new_tile)).next().is_some() {
 				return Some(new_tile);
 			}
 		}
@@ -436,7 +379,7 @@ impl Iterator for Hand4Tenpai {
 
 impl core::iter::FusedIterator for Hand4Tenpai {}
 
-impl Hand<U7, U2> {
+impl Hand<7, 2> {
 	/// Add the given drawn / called tile to this hand and convert it into an `Iterator` of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -462,7 +405,7 @@ impl Hand<U7, U2> {
 		let Self(ts, ms) = self;
 		let lookup = Lookup::new(Keys::default().push_all(ts).push(new_tile));
 		let lookup = LookupForNewTile::new(lookup, new_tile, tsumo_or_ron);
-		let [ma, mb] = <[HandMeld; _]>::from(ms).map(Into::into);
+		let [ma, mb] = ms.map(Into::into);
 		Hand7ScorableHands { lookup, ma, mb }
 	}
 
@@ -489,7 +432,7 @@ impl Hand<U7, U2> {
 
 #[derive(Clone, Debug)]
 pub struct Hand7ScorableHands {
-	lookup: LookupForNewTile<U1>,
+	lookup: LookupForNewTile<1>,
 	ma: ScorableHandMeld,
 	mb: ScorableHandMeld,
 }
@@ -500,8 +443,7 @@ impl Iterator for Hand7ScorableHands {
 	type Item = ScorableHand;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let (ms, md, pair) = self.lookup.next()?;
-		let [mc] = ms.into();
+		let ([mc], md, pair) = self.lookup.next()?;
 		Some(ScorableHand::Regular(ScorableHandRegular::new(self.ma, self.mb, mc, md, pair)))
 	}
 
@@ -515,7 +457,7 @@ impl core::iter::FusedIterator for Hand7ScorableHands {}
 #[derive(Clone, Debug)]
 pub struct Hand7Tenpai {
 	tiles: core::slice::Iter<'static, Tile>,
-	keys: Keys<U7>,
+	keys: Keys<7>,
 }
 
 assert_size_of!(Hand7Tenpai, 40);
@@ -526,7 +468,7 @@ impl Iterator for Hand7Tenpai {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			let new_tile = *self.tiles.next()?;
-			if Lookup::<U2>::new(self.keys.clone().push(new_tile)).next().is_some() {
+			if Lookup::<2>::new(self.keys.clone().push(new_tile)).next().is_some() {
 				return Some(new_tile);
 			}
 		}
@@ -540,7 +482,7 @@ impl Iterator for Hand7Tenpai {
 
 impl core::iter::FusedIterator for Hand7Tenpai {}
 
-impl Hand<U10, U1> {
+impl Hand<10, 1> {
 	/// Add the given drawn / called tile to this hand and convert it into an `Iterator` of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -566,7 +508,7 @@ impl Hand<U10, U1> {
 		let Self(ts, ms) = self;
 		let lookup = Lookup::new(Keys::default().push_all(ts).push(new_tile));
 		let lookup = LookupForNewTile::new(lookup, new_tile, tsumo_or_ron);
-		let [ma] = <[HandMeld; _]>::from(ms).map(Into::into);
+		let [ma] = ms.map(Into::into);
 		Hand10ScorableHands { lookup, ma }
 	}
 
@@ -593,7 +535,7 @@ impl Hand<U10, U1> {
 
 #[derive(Clone, Debug)]
 pub struct Hand10ScorableHands {
-	lookup: LookupForNewTile<U2>,
+	lookup: LookupForNewTile<2>,
 	ma: ScorableHandMeld,
 }
 
@@ -603,8 +545,7 @@ impl Iterator for Hand10ScorableHands {
 	type Item = ScorableHand;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let (ms, md, pair) = self.lookup.next()?;
-		let [mb, mc] = ms.into();
+		let ([mb, mc], md, pair) = self.lookup.next()?;
 		Some(ScorableHand::Regular(ScorableHandRegular::new(self.ma, mb, mc, md, pair)))
 	}
 
@@ -618,7 +559,7 @@ impl core::iter::FusedIterator for Hand10ScorableHands {}
 #[derive(Clone, Debug)]
 pub struct Hand10Tenpai {
 	tiles: core::slice::Iter<'static, Tile>,
-	keys: Keys<U10>,
+	keys: Keys<10>,
 }
 
 assert_size_of!(Hand10Tenpai, 40);
@@ -629,7 +570,7 @@ impl Iterator for Hand10Tenpai {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			let new_tile = *self.tiles.next()?;
-			if Lookup::<U3>::new(self.keys.clone().push(new_tile)).next().is_some() {
+			if Lookup::<3>::new(self.keys.clone().push(new_tile)).next().is_some() {
 				return Some(new_tile);
 			}
 		}
@@ -643,7 +584,7 @@ impl Iterator for Hand10Tenpai {
 
 impl core::iter::FusedIterator for Hand10Tenpai {}
 
-impl Hand<U13, U0> {
+impl Hand<13, 0> {
 	/// Add the given drawn / called tile to this hand and convert it into an `Iterator` of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -666,14 +607,13 @@ impl Hand<U13, U0> {
 	///
 	/// One of the first two is guaranteed to be yielded, and the third is guaranteed to be yielded.
 	pub fn to_scorable_hands(self, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Hand13ScorableHands {
-		let Self(ts, ms) = self;
-		let [] = ms.into();
+		let Self(ts, []) = self;
 		let lookup = Lookup::new(Keys::default().push_all(ts).push(new_tile));
 		let lookup = LookupForNewTile::new(lookup, new_tile, tsumo_or_ron);
 
-		let kokushi_musou = LookupKokushiMusou::new(ts.as_ref()).with_new_tile(new_tile);
+		let kokushi_musou = LookupKokushiMusou::new(&ts).with_new_tile(new_tile);
 
-		let chiitoi = match lookup_chiitoi_with_pairs(ts.as_ref()) {
+		let chiitoi = match lookup_chiitoi_with_pairs(&ts) {
 			Some((ps, t)) =>
 				if let Some(p7) = ScorableHandPair::new(t, new_tile) {
 					let Err(i) = ps.binary_search(&p7) else {
@@ -684,9 +624,8 @@ impl Hand<U13, U0> {
 					pairs[..i].write_copy_of_slice(&ps[..i]);
 					pairs[i].write(p7);
 					pairs[i + 1..].write_copy_of_slice(&ps[i..]);
-					// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
 					// SAFETY: Inserting an element into a `[; 6]` initializes all elements of the resulting `[; 7]`.
-					let pairs = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<ScorableHandPair>; 7], [ScorableHandPair; 7]>(pairs) };
+					let pairs = unsafe { core::mem::MaybeUninit::array_assume_init(pairs) };
 					Some(ScorableHand::Chiitoi(ScorableHandChiitoi(pairs)))
 				}
 				else {
@@ -715,8 +654,8 @@ impl Hand<U13, U0> {
 
 		let tiles = Tile::each(game_type).iter();
 		let Self(ts, _) = self;
-		let kokushi_musou = LookupKokushiMusou::new(ts.as_ref());
-		let chiitoi = lookup_chiitoi(ts.as_ref());
+		let kokushi_musou = LookupKokushiMusou::new(&ts);
+		let chiitoi = lookup_chiitoi(&ts);
 		let keys = Keys::default().push_all(ts);
 		Hand13Tenpai { tiles, kokushi_musou, chiitoi, keys }
 	}
@@ -724,7 +663,7 @@ impl Hand<U13, U0> {
 
 #[derive(Clone, Debug)]
 pub struct Hand13ScorableHands {
-	lookup: LookupForNewTile<U3>,
+	lookup: LookupForNewTile<3>,
 	kokushi_musou: Option<ScorableHand>,
 	chiitoi: Option<ScorableHand>,
 }
@@ -743,8 +682,7 @@ impl Iterator for Hand13ScorableHands {
 			return Some(h);
 		}
 
-		let (ms, md, pair) = self.lookup.next()?;
-		let [ma, mb, mc] = ms.into();
+		let ([ma, mb, mc], md, pair) = self.lookup.next()?;
 		Some(ScorableHand::Regular(ScorableHandRegular::new(ma, mb, mc, md, pair)))
 	}
 
@@ -764,7 +702,7 @@ pub struct Hand13Tenpai {
 	tiles: core::slice::Iter<'static, Tile>,
 	kokushi_musou: LookupKokushiMusou,
 	chiitoi: Option<Tile>,
-	keys: Keys<U13>,
+	keys: Keys<13>,
 }
 
 assert_size_of!(Hand13Tenpai, 56);
@@ -779,11 +717,12 @@ impl Iterator for Hand13Tenpai {
 			if self.kokushi_musou.clone().with_new_tile(new_tile).is_some() {
 				return Some(new_tile);
 			}
+
 			if let Some(t) = self.chiitoi && t.eq_ignore_red(&new_tile) {
 				return Some(new_tile);
 			}
 
-			if Lookup::<U4>::new(self.keys.clone().push(new_tile)).next().is_some() {
+			if Lookup::<4>::new(self.keys.clone().push(new_tile)).next().is_some() {
 				return Some(new_tile);
 			}
 		}
@@ -797,14 +736,14 @@ impl Iterator for Hand13Tenpai {
 
 impl core::iter::FusedIterator for Hand13Tenpai {}
 
-impl Hand<U14, U0> {
+impl Hand<14, 0> {
 	/// Find all possible ankans (quad via kan call on a quad held in the hand).
 	///
 	/// This is used for the special case where the dealer's starting hand can call an ankan. All other cases are handled by
 	/// a stable hand type (like `Hand<13, 0>`) calling `find_ankans` at the time of drawing a new tile.
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
-	pub fn find_ankans(self) -> Ankans<U14, U0> {
+	pub fn find_ankans(self) -> Ankans<14, 0> {
 		Ankans::new(self)
 	}
 
@@ -837,7 +776,7 @@ impl Hand<U14, U0> {
 		ts.into_iter().enumerate()
 			.flat_map(move |(i, new_tile)| {
 				// SAFETY: `i` is guaranteed to be within the bounds of `ts` by the definition of `.into_iter().enumerate()`.
-				let (_, ts) = unsafe { ts.remove_unchecked(i) };
+				let ts = unsafe { except(&ts, [i]) };
 				Hand(ts, ms).to_scorable_hands(new_tile, TsumoOrRon::Tsumo)
 			})
 	}
@@ -847,7 +786,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Ankan`](Self::Ankan) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`, `None` otherwise.
-	pub fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let tile = Tile::kan_representative(t1, t2, t3, t4)?;
 		Some(Self::Ankan(tile))
 	}
@@ -857,7 +796,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// Requires `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`.
-	pub unsafe fn ankan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
+	pub const unsafe fn ankan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
 		let tile = unsafe { Tile::kan_representative_unchecked(t1, t2, t3, t4) };
 		Self::Ankan(tile)
 	}
@@ -865,7 +804,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minkan`](Self::Minkan) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`, `None` otherwise.
-	pub fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let tile = Tile::kan_representative(t1, t2, t3, t4)?;
 		Some(Self::Minkan(tile))
 	}
@@ -875,7 +814,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// Requires `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`.
-	pub unsafe fn minkan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
+	pub const unsafe fn minkan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
 		let tile = unsafe { Tile::kan_representative_unchecked(t1, t2, t3, t4) };
 		Self::Minkan(tile)
 	}
@@ -883,7 +822,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minkou`](Self::Minkou) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2].eq_ignore_red(&[t2, t3])`, `None` otherwise.
-	pub fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
+	pub const fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
 		let tile = Tile::kou_representative(t1, t2, t3)?;
 		Some(Self::Minkou(tile))
 	}
@@ -893,7 +832,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// Requires `[t1, t2].eq_ignore_red(&[t2, t3])`.
-	pub unsafe fn minkou_unchecked(t1: Tile, t2: Tile, t3: Tile) -> Self {
+	pub const unsafe fn minkou_unchecked(t1: Tile, t2: Tile, t3: Tile) -> Self {
 		let tile = unsafe { Tile::kou_representative_unchecked(t1, t2, t3) };
 		Self::Minkou(tile)
 	}
@@ -901,7 +840,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minjun`](Self::Minjun) using the given tiles.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::Minjun(t))
 	}
@@ -911,7 +850,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// See [`ShunLowTileAndHasFiveRed::new_unchecked`].
-	pub unsafe fn minjun_unchecked(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
+	pub const unsafe fn minjun_unchecked(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
 		let t = unsafe { ShunLowTileAndHasFiveRed::new_unchecked(t1, t2, t3) };
 		Self::Minjun(t)
 	}
@@ -933,7 +872,7 @@ impl HandMeld {
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
 	pub fn parse_until(s: &[u8], end: Option<u8>) -> Result<(Self, &[u8]), ()> {
-		let (ts, ty, s) = Tile::parse_run_until::<U4>(s, end)?;
+		let (ts, ty, s) = Tile::parse_run_until::<4>(s, end)?;
 		let ty = ty.ok_or(())?;
 		Ok((match ts[..] {
 			[t1, t2, t3, t4] => {
@@ -961,6 +900,13 @@ impl HandMeld {
 
 			_ => return Err(()),
 		}, s))
+	}
+}
+
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+impl const Clone for HandMeld {
+	fn clone(&self) -> Self {
+		*self
 	}
 }
 
@@ -1161,7 +1107,7 @@ impl core::str::FromStr for HandStable {
 	type Err = ();
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let (ts, ts_type, s) = Tile::parse_run_until::<U13>(s.as_ref(), Some(b' '))?;
+		let (ts, ts_type, s) = Tile::parse_run_until::<13>(s.as_ref(), Some(b' '))?;
 		if ts_type.is_some() {
 			return Err(());
 		}
@@ -1169,8 +1115,8 @@ impl core::str::FromStr for HandStable {
 		let (h, s) = match ts[..] {
 			[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13] => (
 				Hand(
-					[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13].into(),
-					[].into(),
+					[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13],
+					[],
 				).into(),
 				s,
 			),
@@ -1179,8 +1125,8 @@ impl core::str::FromStr for HandStable {
 				let (m1, s) = HandMeld::parse_until(s, None)?;
 				(
 					Hand(
-						[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10].into(),
-						[m1].into(),
+						[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10],
+						[m1],
 					).into(),
 					s,
 				)
@@ -1191,8 +1137,8 @@ impl core::str::FromStr for HandStable {
 				let (m2, s) = HandMeld::parse_until(s, None)?;
 				(
 					Hand(
-						[t1, t2, t3, t4, t5, t6, t7].into(),
-						[m1, m2].into(),
+						[t1, t2, t3, t4, t5, t6, t7],
+						[m1, m2],
 					).into(),
 					s,
 				)
@@ -1204,8 +1150,8 @@ impl core::str::FromStr for HandStable {
 				let (m3, s) = HandMeld::parse_until(s, None)?;
 				(
 					Hand(
-						[t1, t2, t3, t4].into(),
-						[m1, m2, m3].into(),
+						[t1, t2, t3, t4],
+						[m1, m2, m3],
 					).into(),
 					s,
 				)
@@ -1218,8 +1164,8 @@ impl core::str::FromStr for HandStable {
 				let (m4, s) = HandMeld::parse_until(s, None)?;
 				(
 					Hand(
-						[t1].into(),
-						[m1, m2, m3, m4].into(),
+						[t1],
+						[m1, m2, m3, m4],
 					).into(),
 					s,
 				)
@@ -1251,9 +1197,9 @@ impl HandTentative {
 }
 
 macro_rules! hand_enum_from {
-	($($nt:ty, $nm:ty => $ty:tt :: $variant:ident ,)*) => {
+	($($nt:expr, $nm:expr => $ty:tt :: $variant:ident ,)*) => {
 		$(
-			impl From<Hand<$nt, $nm>> for $ty {
+			impl const From<Hand<$nt, $nm>> for $ty {
 				fn from(h: Hand<$nt, $nm>) -> Self {
 					Self::$variant(h)
 				}
@@ -1263,34 +1209,27 @@ macro_rules! hand_enum_from {
 }
 
 hand_enum_from! {
-	U1, U4 => HandStable::One,
-	U2, U4 => HandTentative::Two,
-	U4, U3 => HandStable::Four,
-	U5, U3 => HandTentative::Five,
-	U7, U2 => HandStable::Seven,
-	U8, U2 => HandTentative::Eight,
-	U10, U1 => HandStable::Ten,
-	U11, U1 => HandTentative::Eleven,
-	U13, U0 => HandStable::Thirteen,
-	U14, U0 => HandTentative::Fourteen,
+	1, 4 => HandStable::One,
+	2, 4 => HandTentative::Two,
+	4, 3 => HandStable::Four,
+	5, 3 => HandTentative::Five,
+	7, 2 => HandStable::Seven,
+	8, 2 => HandTentative::Eight,
+	10, 1 => HandStable::Ten,
+	11, 1 => HandTentative::Eleven,
+	13, 0 => HandStable::Thirteen,
+	14, 0 => HandTentative::Fourteen,
 }
 
 /// [`Iterator`] of [`Hand<{ NT - 4 }, { NM + 1 }>`](Hand) values formed by creating an ankan in the given hand.
-pub struct Ankans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Debug)]
+#[derive_const(Clone)]
+pub struct Ankans<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	tiles: TileMultiSetIntoIter<Tile34MultiSetElement>,
 }
 
-impl<NT, NM> Ankans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Ankans<NT, NM> {
 	fn new(hand: Hand<NT, NM>) -> Self {
 		let tiles: Tile34MultiSet = hand.0.into_iter().collect();
 		Self {
@@ -1300,42 +1239,12 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Ankans<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	TileMultiSetIntoIter<Tile34MultiSetElement>: Clone,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			tiles: self.tiles.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Ankans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Ankans")
-			.field("hand", &self.hand)
-			.field("tiles", &self.tiles)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Ankans<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<U4, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = Hand<Diff<NT, U4>, Sum<NM, U1>>;
+	type Item = Hand<{ NT - 4 }, { NM + 1 }>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1346,8 +1255,8 @@ where
 
 			// SAFETY: `count` has been checked above to ensure that there are at most four tiles that match `t`.
 			// Thus exactly 4 elements will be pushed into `ts_kan`, and exactly NT - 4 elements will be pushed into `ts_rest`.
-			let mut ts_rest = ArrayVec::<_, Diff<NT, U4>>::new();
-			let mut ts_kan = ArrayVec::<_, U4>::new();
+			let mut ts_rest = ArrayVec::<_, { NT - 4 }>::new();
+			let mut ts_kan = ArrayVec::<_, 4>::new();
 			for t in ts {
 				if t.eq_ignore_red(&t_kan) {
 					unsafe { ts_kan.push_unchecked(t); }
@@ -1359,10 +1268,9 @@ where
 			let ts_rest = ts_rest.try_into();
 			let ts_rest = unsafe { ts_rest.unwrap_unchecked() };
 			let ts_kan = ts_kan.try_into();
-			let ts_kan: GenericArray<_, U4> = unsafe { ts_kan.unwrap_unchecked() };
-			let [t1, t2, t3, t4] = ts_kan.into();
+			let [t1, t2, t3, t4] = unsafe { ts_kan.unwrap_unchecked() };
 			// SAFETY: `ts_kan` is guaranteed to contain tiles that form a valid kan.
-			break Some(Hand(ts_rest, ms.concat([unsafe { HandMeld::ankan_unchecked(t1, t2, t3, t4) }].into())));
+			break Some(Hand(ts_rest, append(ms, unsafe { HandMeld::ankan_unchecked(t1, t2, t3, t4) })));
 		}
 	}
 
@@ -1372,22 +1280,21 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Ankans<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<U4, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {}
 
 /// [`Iterator`] of [`HandStable`] values formed by creating an ankan in the given hand.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 pub enum HandAnkans {
 	One,
-	Four(Ankans<U5, U3>),
-	Seven(Ankans<U8, U2>),
-	Ten(Ankans<U11, U1>),
-	Thirteen(Ankans<U14, U0>),
+	Four(Ankans<5, 3>),
+	Seven(Ankans<8, 2>),
+	Ten(Ankans<11, 1>),
+	Thirteen(Ankans<14, 0>),
 }
 
 impl Iterator for HandAnkans {
@@ -1416,55 +1323,41 @@ impl Iterator for HandAnkans {
 
 impl core::iter::FusedIterator for HandAnkans {}
 
-fn find_daiminkan<N>(
-	ts: GenericArray<Tile, N>,
+fn find_daiminkan<const N: usize>(
+	ts: [Tile; N],
 	new_tile: Tile,
-) -> Option<(GenericArray<Tile, Diff<N, U3>>, HandMeld)>
-where
-	N: ArrayLength + core::ops::Sub<U3, Output: ArrayLength>,
-	GenericArray<Tile, N>: Copy,
-{
+) -> Option<([Tile; N - 3], HandMeld)> {
 	let mut existing = ts.into_iter().enumerate().filter(|&(_, t)| t.eq_ignore_red(&new_tile));
 	let (i1, t1) = existing.next()?;
 	let (i2, t2) = existing.next()?;
 	let (i3, t3) = existing.next()?;
 	// SAFETY: `i*` are guaranteed to be in ascending order and within the bounds of `ts` by the definition of `.into_iter().enumerate()`.
-	let ts = unsafe { except(&ts, [i1, i2, i3].into()) };
+	let ts = unsafe { except(&ts, [i1, i2, i3]) };
 	// SAFETY: `existing` only yields tiles which equal `new_tile`, so all four must form a valid kan.
 	let m = unsafe { HandMeld::minkan_unchecked(t1, t2, t3, new_tile) };
 	Some((ts, m))
 }
 
 /// [`Iterator`] of [`Hand<{ NT - 1 }, NM>`](Hand) values formed by creating a shouminkan in the given hand.
-pub struct Shouminkans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive_const(Clone)]
+#[derive(Debug)]
+pub struct Shouminkans<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	i: core::ops::Range<usize>,
 }
 
-impl<NT, NM> Shouminkans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Shouminkans<NT, NM> {
 	fn new(hand: Hand<NT, NM>) -> Self {
 		let i = 0..hand.0.len();
 		Self { hand, i }
 	}
 }
 
-impl<NT, NM> Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> Shouminkans<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<U1, Output: ArrayLength>,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy + Remove<Tile, NT, Output = GenericArray<Tile, Diff<NT, U1>>>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 1]:,
 {
-	fn next_inner(&self, i: usize) -> Option<Hand<Diff<NT, U1>, NM>> {
+	fn next_inner(&self, i: usize) -> Option<Hand<{ NT - 1 }, NM>> {
 		// SAFETY: `self.i` yields only indices which are valid for `self.hand.0` because that was how it was constructed in `new()`.
 		unsafe { core::hint::assert_unchecked(i < self.hand.0.len()); }
 		let tile = self.hand.0[i];
@@ -1475,7 +1368,7 @@ where
 			if let HandMeld::Minkou(t) = *m && t.eq_ignore_red(&tile) {
 				// SAFETY: Three tiles of a kou with a fourth tile that is equal to the kou's tiles necessarily form a valid kan.
 				*m = unsafe { HandMeld::minkan_unchecked(t, t, t, tile) };
-				let (_, ts) = unsafe { self.hand.0.remove_unchecked(i) };
+				let ts = unsafe { except(&self.hand.0, [i]) };
 				return Some(Hand(ts, melds));
 			}
 		}
@@ -1483,42 +1376,11 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Shouminkans<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	TileMultiSetIntoIter<Tile34MultiSetElement>: Clone,
+	[(); NT - 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			i: self.i.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Shouminkans<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Shouminkans")
-			.field("hand", &self.hand)
-			.field("i", &self.i)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Shouminkans<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<U1, Output: ArrayLength>,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy + Remove<Tile, NT, Output = GenericArray<Tile, Diff<NT, U1>>>,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = Hand<Diff<NT, U1>, NM>;
+	type Item = Hand<{ NT - 1 }, NM>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1535,12 +1397,9 @@ where
 	}
 }
 
-impl<NT, NM> DoubleEndedIterator for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Shouminkans<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<U1, Output: ArrayLength>,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy + Remove<Tile, NT, Output = GenericArray<Tile, Diff<NT, U1>>>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 1]:,
 {
 	fn next_back(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1552,21 +1411,19 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Shouminkans<NT, NM>
 where
-	NT: ArrayLength + core::ops::Sub<U1, Output: ArrayLength>,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy + Remove<Tile, NT, Output = GenericArray<Tile, Diff<NT, U1>>>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 1]:,
 {}
 
 /// [`Iterator`] of [`HandStable`] values formed by creating an shouminkan in the given hand.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 pub enum HandShouminkans {
-	One(Shouminkans<U2, U4>),
-	Four(Shouminkans<U5, U3>),
-	Seven(Shouminkans<U8, U2>),
-	Ten(Shouminkans<U11, U1>),
+	One(Shouminkans<2, 4>),
+	Four(Shouminkans<5, 3>),
+	Seven(Shouminkans<8, 2>),
+	Ten(Shouminkans<11, 1>),
 	Thirteen,
 }
 
@@ -1611,22 +1468,14 @@ impl core::iter::FusedIterator for HandShouminkans {}
 /// [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`](Hand) values formed by creating a minkou in the given hand using the given new tile.
 /// Along with the `Hand`, the iterator element contains a list of tile indices in the resulting hand that are allowed to be discarded.
 /// Indices that are not present in this list are not allowed to be discarded due to kuikae.
-pub struct Minkous<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Clone, Debug)]
+pub struct Minkous<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	new_tile: Tile,
-	combinations: ArrayVecIntoCombinations<(usize, Tile), U4>,
+	combinations: ArrayVecIntoCombinations<(usize, Tile), 4>,
 }
 
-impl<NT, NM> Minkous<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Minkous<NT, NM> {
 	fn new(hand: Hand<NT, NM>, new_tile: Tile) -> Self {
 		let ts_consider: ArrayVec<_, _> = hand.0.into_iter().enumerate().filter(|&(_, t)| t.eq_ignore_red(&new_tile)).collect();
 		Self {
@@ -1637,44 +1486,12 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Minkous<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	GenericArray<core::mem::MaybeUninit<(usize, Tile)>, NT>: Clone,
+	[(); NT - 2]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			new_tile: self.new_tile,
-			combinations: self.combinations.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Minkous<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Minkous")
-			.field("hand", &self.hand)
-			.field("new_tile", &self.new_tile)
-			.field("combinations", &self.combinations)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Minkous<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<U2, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = (Hand<Diff<NT, U2>, Sum<NM, U1>>, ArrayVec<usize, Diff<NT, U2>>);
+	type Item = (Hand<{ NT - 2 }, { NM + 1 }>, ArrayVec<usize, { NT - 2 }>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let ((i1, t1), (i2, t2)) = self.combinations.next()?;
@@ -1682,12 +1499,12 @@ where
 		let m = unsafe { HandMeld::minkou_unchecked(t1, t2, self.new_tile) };
 		// SAFETY: `i*` are guaranteed to be within the bounds of `self.hand.0` by the implementation of `.into_iter().enumerate()`
 		// and to be in ascending order `ArrayVecIntoCombinations`.
-		let ts = unsafe { except(&self.hand.0, [i1, i2].into()) };
+		let ts = unsafe { except(&self.hand.0, [i1, i2]) };
 		let allowed_discards: ArrayVec<_, _> =
 			ts.iter().enumerate()
 			.filter_map(|(i, &t)| t.ne_ignore_red(&self.new_tile).then_some(i))
 			.collect();
-		(!allowed_discards.is_empty()).then(|| (Hand(ts, self.hand.1.concat([m].into())), allowed_discards))
+		(!allowed_discards.is_empty()).then(|| (Hand(ts, append(self.hand.1, m)), allowed_discards))
 	}
 
 	fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1696,10 +1513,8 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minkous<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
 	Self: Iterator,
 {}
 
@@ -1709,14 +1524,14 @@ where
 #[derive(Clone, Debug)]
 pub enum HandMinkous {
 	One,
-	Four(Minkous<U4, U3>),
-	Seven(Minkous<U7, U2>),
-	Ten(Minkous<U10, U1>),
-	Thirteen(Minkous<U13, U0>),
+	Four(Minkous<4, 3>),
+	Seven(Minkous<7, 2>),
+	Ten(Minkous<10, 1>),
+	Thirteen(Minkous<13, 0>),
 }
 
 impl Iterator for HandMinkous {
-	type Item = (HandTentative, ArrayVec<usize, U11>);
+	type Item = (HandTentative, ArrayVec<usize, 11>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -1744,22 +1559,14 @@ impl core::iter::FusedIterator for HandMinkous {}
 /// [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`](Hand) values formed by creating a minjun in the given hand using the given new tile.
 /// Along with the `Hand`, the iterator element contains a list of tile indices in the resulting hand that are allowed to be discarded.
 /// Indices that are not present in this list are not allowed to be discarded due to kuikae.
-pub struct Minjuns<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
+#[derive(Clone, Debug)]
+pub struct Minjuns<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	new_tile: NumberTile,
-	combinations: ArrayVecIntoCombinations<(usize, NumberTile), U8>,
+	combinations: ArrayVecIntoCombinations<(usize, NumberTile), 8>,
 }
 
-impl<NT, NM> Minjuns<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	GenericArray<Tile, NT>: Copy,
-{
+impl<const NT: usize, const NM: usize> Minjuns<NT, NM> {
 	fn new(hand: Hand<NT, NM>, new_tile: NumberTile) -> Self {
 		let ts_consider: ArrayVec<_, _> =
 			hand.0.into_iter()
@@ -1777,44 +1584,12 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Minjuns<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	GenericArray<core::mem::MaybeUninit<(usize, NumberTile)>, NT>: Clone,
+	[(); NT - 2]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			new_tile: self.new_tile,
-			combinations: self.combinations.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Minjuns<NT, NM>
-where
-	NT: ArrayLength,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Minjuns")
-			.field("hand", &self.hand)
-			.field("new_tile", &self.new_tile)
-			.field("combinations", &self.combinations)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Minjuns<NT, NM>
-where
-	NT: ArrayLength + core::ops::Sub<U2, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<Tile, NT>: Copy,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = (Hand<Diff<NT, U2>, Sum<NM, U1>>, ArrayVec<usize, Diff<NT, U2>>);
+	type Item = (Hand<{ NT - 2 }, { NM + 1 }>, ArrayVec<usize, { NT - 2 }>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1831,7 +1606,7 @@ where
 
 			// SAFETY: `i*` are guaranteed to be within the bounds of `self.hand.0` by the implementation of `.into_iter().enumerate()`
 			// and to be in ascending order `ArrayVecIntoCombinations`.
-			let ts = unsafe { except(&self.hand.0, [i1, i2].into()) };
+			let ts = unsafe { except(&self.hand.0, [i1, i2]) };
 
 			let cannot_discard_new = Tile::from(self.new_tile);
 			let cannot_discard_low = if t3.eq_ignore_red(&self.new_tile) { t1.previous_in_sequence().map(Tile::from) } else { None };
@@ -1842,7 +1617,7 @@ where
 				.collect();
 
 			if !allowed_discards.is_empty() {
-				return Some((Hand(ts, self.hand.1.concat([m].into())), allowed_discards));
+				return Some((Hand(ts, append(self.hand.1, m)), allowed_discards));
 			}
 		}
 	}
@@ -1853,10 +1628,8 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minjuns<NT, NM>
 where
-	NT: ArrayLength,
-	NM: ArrayLength,
 	Self: Iterator,
 {}
 
@@ -1866,14 +1639,14 @@ where
 #[derive(Clone, Debug)]
 pub enum HandMinjuns {
 	One,
-	Four(Minjuns<U4, U3>),
-	Seven(Minjuns<U7, U2>),
-	Ten(Minjuns<U10, U1>),
-	Thirteen(Minjuns<U13, U0>),
+	Four(Minjuns<4, 3>),
+	Seven(Minjuns<7, 2>),
+	Ten(Minjuns<10, 1>),
+	Thirteen(Minjuns<13, 0>),
 }
 
 impl Iterator for HandMinjuns {
-	type Item = (HandTentative, ArrayVec<usize, U11>);
+	type Item = (HandTentative, ArrayVec<usize, 11>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -1968,6 +1741,15 @@ impl Iterator for HandTenpai {
 
 impl core::iter::FusedIterator for HandTenpai {}
 
+fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; N + 1] {
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; N + 1];
+	// SAFETY: N + 1 > N and `[T; _]` has the same alignment as `T`.
+	unsafe { result.as_mut_ptr().cast::<[T; N]>().write(arr); }
+	result[N].write(element);
+	// SAFETY: Appending an element to a `[; N]` initializes all elements of the resulting `[; N + 1]`.
+	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
+}
+
 #[derive(Clone, Debug)]
 struct LookupKokushiMusou {
 	set: Tile34Set,
@@ -2002,484 +1784,499 @@ impl LookupKokushiMusou {
 	}
 }
 
-#[cfg(all(target_arch = "riscv64", target_feature = "v"))]
 fn lookup_chiitoi(ts: &[Tile; 13]) -> Option<Tile> {
-	let t: isize;
-	let num_pairs: u64;
+	let (is_valid, t) = cfg_select! {
+		// TODO(rustup): The `core::simd` version has a bunch of inefficiencies compared to this manual impl,
+		// such as multiple `vmerge.vim`s since `core::simd` cannot represent masked `vadd.vi`,
+		// and having to use so many vregs that it has to spill them to stack multiple times.
+		all(target_arch = "riscv64", target_feature = "v") => {{
+			let t: isize;
+			let num_pairs: u64;
 
-	unsafe {
-		core::arch::asm!(
-			// let ts /* : v24:v24 */ = core::simd::Simd::from_array(*ts);
-			"vsetivli zero, 13, e8, m1, ta, ma",
-			"vle8.v v24, ({ts})",
+			unsafe {
+				core::arch::asm!(
+					// let ts /* : v24:v24 */ = core::simd::Simd::from_array(*ts);
+					"vsetivli zero, 13, e8, m1, ta, ma",
+					"vle8.v v24, ({ts})",
 
-			// let offsets /* : v8:v8 */ = ts >> 1;
-			"vsrl.vi v8, v24, 1",
+					// let offsets /* : v8:v8 */ = ts >> 1;
+					"vsrl.vi v8, v24, 1",
 
-			// let mut counts /* : v12:v15 */ = core::simd::Simd::<u8, 34>::splat(0);
-			"vsetvli zero, {thirty_four}, e8, m{e8x34_lmul}, ta, mu",
-			"vmv.v.i v12, 0",
+					// let mut counts /* : v12:v15 */ = core::simd::Simd::<u8, 34>::splat(0);
+					"vsetvli zero, {thirty_four}, e8, m{e8x34_lmul}, ta, mu",
+					"vmv.v.i v12, 0",
 
-			// let id /* : v16:v19 */ = core::simd::Simd::<u8, 34>::from_array(core::array::from_fn(|i| i as u8));
-			"vid.v v16",
+					// let id /* : v16:v19 */ = core::simd::Simd::<u8, 34>::from_array(core::array::from_fn(|i| i as u8));
+					"vid.v v16",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[0]);
-			"vrgather.vi v20, v8, 0",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[0]);
+					"vrgather.vi v20, v8, 0",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[1]);
-			"vrgather.vi v20, v8, 1",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[1]);
+					"vrgather.vi v20, v8, 1",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[2]);
-			"vrgather.vi v20, v8, 2",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[2]);
+					"vrgather.vi v20, v8, 2",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[3]);
-			"vrgather.vi v20, v8, 3",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[3]);
+					"vrgather.vi v20, v8, 3",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[4]);
-			"vrgather.vi v20, v8, 4",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[4]);
+					"vrgather.vi v20, v8, 4",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[5]);
-			"vrgather.vi v20, v8, 5",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[5]);
+					"vrgather.vi v20, v8, 5",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[6]);
-			"vrgather.vi v20, v8, 6",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[6]);
+					"vrgather.vi v20, v8, 6",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[7]);
-			"vrgather.vi v20, v8, 7",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[7]);
+					"vrgather.vi v20, v8, 7",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[8]);
-			"vrgather.vi v20, v8, 8",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[8]);
+					"vrgather.vi v20, v8, 8",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[9]);
-			"vrgather.vi v20, v8, 9",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[9]);
+					"vrgather.vi v20, v8, 9",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[10]);
-			"vrgather.vi v20, v8, 10",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[10]);
+					"vrgather.vi v20, v8, 10",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[11]);
-			"vrgather.vi v20, v8, 11",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[11]);
+					"vrgather.vi v20, v8, 11",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[12]);
-			"vrgather.vi v20, v8, 12",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[12]);
+					"vrgather.vi v20, v8, 12",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
 
-			// let single_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(1));
-			"vmseq.vi v0, v12, 1",
-			// let t = single_is.first_set().unwrap();
-			"vfirst.m {t}, v0",
+					// let single_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(1));
+					"vmseq.vi v0, v12, 1",
+					// let t = single_is.first_set().unwrap();
+					"vfirst.m {t}, v0",
 
-			// let pair_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(2));
-			"vmseq.vi v0, v12, 2",
-			// let num_pairs = pair_is.to_bitmask().count_ones();
-			"vcpop.m {num_pairs}, v0",
+					// let pair_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(2));
+					"vmseq.vi v0, v12, 2",
+					// let num_pairs = pair_is.to_bitmask().count_ones();
+					"vcpop.m {num_pairs}, v0",
 
-			out("v0") _,
-			out("v8") _,
-			out("v12") _,
-			out("v13") _,
-			out("v14") _,
-			out("v15") _,
-			out("v16") _,
-			out("v17") _,
-			out("v18") _,
-			out("v19") _,
-			out("v20") _,
-			out("v21") _,
-			out("v22") _,
-			out("v23") _,
-			out("v24") _,
+					out("v0") _,
+					out("v8") _,
+					out("v12") _,
+					out("v13") _,
+					out("v14") _,
+					out("v15") _,
+					out("v16") _,
+					out("v17") _,
+					out("v18") _,
+					out("v19") _,
+					out("v20") _,
+					out("v21") _,
+					out("v22") _,
+					out("v23") _,
+					out("v24") _,
 
-			thirty_four = in(reg) 34_usize,
-			#[cfg(target_feature = "zvl512b")]
-			e8x34_lmul = const 1,
-			#[cfg(all(not(target_feature = "zvl512b"), target_feature = "zvl256b"))]
-			e8x34_lmul = const 2,
-			#[cfg(not(target_feature = "zvl256b"))]
-			e8x34_lmul = const 4,
-			ts = in(reg) ts.as_ptr(),
-			t = lateout(reg) t,
-			num_pairs = lateout(reg) num_pairs,
-			options(nostack),
-		);
-	}
+					thirty_four = in(reg) 34_usize,
+					e8x34_lmul = const cfg_select! {
+						target_feature = "zvl512b" => 1,
+						target_feature = "zvl256b" => 2,
+						_ => 4,
+					},
+					ts = in(reg) ts.as_ptr(),
+					t = lateout(reg) t,
+					num_pairs = lateout(reg) num_pairs,
+					options(nostack),
+				);
+			}
 
-	(num_pairs == 6).then(|| {
-		let t = (t as u8) << 1;
-		// SAFETY: Since `num_pairs` is 6, `ts` is guaranteed to have contained six pairs and one unpaired tile,
+			(num_pairs == 6, (t as u8) << 1)
+		}},
+
+		_ => {{
+			let mut first = 0_u64;
+			let mut second = 0_u64;
+			let mut invalid = 0_u64;
+			for &t in ts {
+				let t = t as u8;
+				let offset = t >> 1;
+				let mask = 0b1_u64 << offset;
+				let first_mask = first & mask;
+				let second_mask = second & mask;
+				first |= mask;
+				second |= first_mask;
+				invalid |= second_mask;
+			}
+
+			#[expect(clippy::cast_possible_truncation)]
+			let t = ((first ^ second).trailing_zeros() as u8) << 1;
+
+			(invalid | (u64::from(first.count_ones()) ^ 7) | (u64::from(second.count_ones()) ^ 6) == 0, t)
+		}},
+	};
+
+	is_valid.then(|| {
+		// SAFETY: Since `is_valid` is true, `ts` is guaranteed to have contained six pairs and one unpaired tile,
 		// and `t` is guaranteed to be that tile.
 		unsafe { core::mem::transmute::<u8, Tile>(t) }
 	})
 }
 
-#[cfg(not(all(target_arch = "riscv64", target_feature = "v")))]
-fn lookup_chiitoi(ts: &[Tile; 13]) -> Option<Tile> {
-	let mut first = 0_u64;
-	let mut second = 0_u64;
-	let mut invalid = 0_u64;
-	for &t in ts {
-		let t = t as u8;
-		let offset = t >> 1;
-		let mask = 0b1_u64 << offset;
-		let first_mask = first & mask;
-		let second_mask = second & mask;
-		first |= mask;
-		second |= first_mask;
-		invalid |= second_mask;
-	}
-
-	if invalid | (u64::from(first.count_ones()) ^ 7) | (u64::from(second.count_ones()) ^ 6) != 0 {
-		return None;
-	}
-
-	#[expect(clippy::cast_possible_truncation)]
-	let t = ((first ^ second).trailing_zeros() as u8) << 1;
-	// SAFETY: At this point after the above comparisons, `ts` is guaranteed to have contained six pairs and one unpaired tile,
-	// and `t` is guaranteed to be that tile.
-	let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
-	Some(t)
-}
-
-
-#[cfg(all(target_arch = "riscv64", target_feature = "v"))]
 fn lookup_chiitoi_with_pairs(ts: &[Tile; 13]) -> Option<([ScorableHandPair; 6], Tile)> {
-	let t: isize;
-	let num_pairs: u64;
-	let pair_representatives: u64;
+	cfg_select! {
+		// TODO(rustup): The `core::simd` version has a bunch of inefficiencies compared to this manual impl,
+		// such as multiple `vmerge.vim`s since `core::simd` cannot represent masked `vadd.vi` or `vor.vv`,
+		// and having to use so many vregs that it has to spill them to stack multiple times.
+		all(target_arch = "riscv64", target_feature = "v") => {{
+			let t: isize;
+			let num_pairs: u64;
+			let pair_representatives: u64;
 
-	unsafe {
-		core::arch::asm!(
-			// let ts /* : v24:v24 */ = core::simd::Simd::from_array(*ts);
-			"vsetivli zero, 13, e8, m1, ta, ma",
-			"vle8.v v24, ({ts})",
+			unsafe {
+				core::arch::asm!(
+					// let ts /* : v24:v24 */ = core::simd::Simd::from_array(*ts);
+					"vsetivli zero, 13, e8, m1, ta, ma",
+					"vle8.v v24, ({ts})",
 
-			// let offsets /* : v8:v8 */ = ts >> 1;
-			"vsrl.vi v8, v24, 1",
+					// let offsets /* : v8:v8 */ = ts >> 1;
+					"vsrl.vi v8, v24, 1",
 
-			// let mut counts /* : v12:v15 */ = core::simd::Simd::<u8, 34>::splat(0);
-			"vsetvli zero, {thirty_four}, e8, m{e8x34_lmul}, ta, mu",
-			"vmv.v.i v12, 0",
-			// let mut pair_representatives /* : v28:v31 */ = core::simd::Simd::<u8, 34>::splat(0);
-			"vmv.v.i v28, 0",
+					// let mut counts /* : v12:v15 */ = core::simd::Simd::<u8, 34>::splat(0);
+					"vsetvli zero, {thirty_four}, e8, m{e8x34_lmul}, ta, mu",
+					"vmv.v.i v12, 0",
+					// let mut pair_representatives /* : v28:v31 */ = core::simd::Simd::<u8, 34>::splat(0);
+					"vmv.v.i v28, 0",
 
-			// let id /* : v16:v19 */ = core::simd::Simd::<u8, 34>::from_array(core::array::from_fn(|i| i as u8));
-			"vid.v v16",
+					// let id /* : v16:v19 */ = core::simd::Simd::<u8, 34>::from_array(core::array::from_fn(|i| i as u8));
+					"vid.v v16",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[0]);
-			"vrgather.vi v20, v8, 0",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[0]);
-			"vrgather.vi v20, v24, 0",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[0]);
+					"vrgather.vi v20, v8, 0",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[0]);
+					"vrgather.vi v20, v24, 0",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[1]);
-			"vrgather.vi v20, v8, 1",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[1]);
-			"vrgather.vi v20, v24, 1",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[1]);
+					"vrgather.vi v20, v8, 1",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[1]);
+					"vrgather.vi v20, v24, 1",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[2]);
-			"vrgather.vi v20, v8, 2",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[2]);
-			"vrgather.vi v20, v24, 2",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[2]);
+					"vrgather.vi v20, v8, 2",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[2]);
+					"vrgather.vi v20, v24, 2",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[3]);
-			"vrgather.vi v20, v8, 3",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[3]);
-			"vrgather.vi v20, v24, 3",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[3]);
+					"vrgather.vi v20, v8, 3",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[3]);
+					"vrgather.vi v20, v24, 3",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[4]);
-			"vrgather.vi v20, v8, 4",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[4]);
-			"vrgather.vi v20, v24, 4",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[4]);
+					"vrgather.vi v20, v8, 4",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[4]);
+					"vrgather.vi v20, v24, 4",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[5]);
-			"vrgather.vi v20, v8, 5",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[5]);
-			"vrgather.vi v20, v24, 5",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[5]);
+					"vrgather.vi v20, v8, 5",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[5]);
+					"vrgather.vi v20, v24, 5",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[6]);
-			"vrgather.vi v20, v8, 6",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[6]);
-			"vrgather.vi v20, v24, 6",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[6]);
+					"vrgather.vi v20, v8, 6",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[6]);
+					"vrgather.vi v20, v24, 6",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[7]);
-			"vrgather.vi v20, v8, 7",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[7]);
-			"vrgather.vi v20, v24, 7",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[7]);
+					"vrgather.vi v20, v8, 7",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[7]);
+					"vrgather.vi v20, v24, 7",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[8]);
-			"vrgather.vi v20, v8, 8",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[8]);
-			"vrgather.vi v20, v24, 8",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[8]);
+					"vrgather.vi v20, v8, 8",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[8]);
+					"vrgather.vi v20, v24, 8",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[9]);
-			"vrgather.vi v20, v8, 9",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[9]);
-			"vrgather.vi v20, v24, 9",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[9]);
+					"vrgather.vi v20, v8, 9",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[9]);
+					"vrgather.vi v20, v24, 9",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[10]);
-			"vrgather.vi v20, v8, 10",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[10]);
-			"vrgather.vi v20, v24, 10",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[10]);
+					"vrgather.vi v20, v8, 10",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[10]);
+					"vrgather.vi v20, v24, 10",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[11]);
-			"vrgather.vi v20, v8, 11",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[11]);
-			"vrgather.vi v20, v24, 11",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[11]);
+					"vrgather.vi v20, v8, 11",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[11]);
+					"vrgather.vi v20, v24, 11",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[12]);
-			"vrgather.vi v20, v8, 12",
-			// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
-			"vmseq.vv v0, v20, v16",
-			// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
-			"vadd.vi v12, v12, 1, v0.t",
-			// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[12]);
-			"vrgather.vi v20, v24, 12",
-			// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
-			"vor.vv v28, v28, v20, v0.t",
+					// let offset /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(offsets[12]);
+					"vrgather.vi v20, v8, 12",
+					// let mask /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(offset, id);
+					"vmseq.vv v0, v20, v16",
+					// counts += core::simd::Simd::load_select_or_default(core::simd::Simd::<u8, 34>::splat(1).as_array(), mask);
+					"vadd.vi v12, v12, 1, v0.t",
+					// let t /* : v20:v23 */ = core::simd::Simd::<u8, 34>::splat(ts[12]);
+					"vrgather.vi v20, v24, 12",
+					// pair_representatives |= core::simd::Simd::load_select_or_default(t, mask);
+					"vor.vv v28, v28, v20, v0.t",
 
-			// let single_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(1));
-			"vmseq.vi v0, v12, 1",
-			// let t = single_is.first_set().unwrap();
-			"vfirst.m {t}, v0",
+					// let single_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(1));
+					"vmseq.vi v0, v12, 1",
+					// let t = single_is.first_set().unwrap();
+					"vfirst.m {t}, v0",
 
-			// let pair_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(2));
-			"vmseq.vi v0, v12, 2",
-			// let num_pairs = pair_is.to_bitmask().count_ones();
-			"vcpop.m {num_pairs}, v0",
+					// let pair_is /* : v0:v0 */ = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(2));
+					"vmseq.vi v0, v12, 2",
+					// let num_pairs = pair_is.to_bitmask().count_ones();
+					"vcpop.m {num_pairs}, v0",
 
-			// let pair_representatives /* : v20:v23 */ = vcompress(pair_representatives, pair_is);
-			"vcompress.vm v20, v28, v0",
-			"vsetivli zero, 1, e64, m1, ta, ma",
-			"vmv.x.s {pair_representatives}, v20",
+					// let pair_representatives /* : v20:v23 */ = vcompress(pair_representatives, pair_is);
+					"vcompress.vm v20, v28, v0",
+					"vsetivli zero, 1, e64, m1, ta, ma",
+					"vmv.x.s {pair_representatives}, v20",
 
-			out("v0") _,
-			out("v8") _,
-			out("v12") _,
-			out("v13") _,
-			out("v14") _,
-			out("v15") _,
-			out("v16") _,
-			out("v17") _,
-			out("v18") _,
-			out("v19") _,
-			out("v20") _,
-			out("v21") _,
-			out("v22") _,
-			out("v23") _,
-			out("v24") _,
-			out("v28") _,
-			out("v29") _,
-			out("v30") _,
-			out("v31") _,
+					out("v0") _,
+					out("v8") _,
+					out("v12") _,
+					out("v13") _,
+					out("v14") _,
+					out("v15") _,
+					out("v16") _,
+					out("v17") _,
+					out("v18") _,
+					out("v19") _,
+					out("v20") _,
+					out("v21") _,
+					out("v22") _,
+					out("v23") _,
+					out("v24") _,
+					out("v28") _,
+					out("v29") _,
+					out("v30") _,
+					out("v31") _,
 
-			thirty_four = in(reg) 34_usize,
-			#[cfg(target_feature = "zvl512b")]
-			e8x34_lmul = const 1,
-			#[cfg(all(not(target_feature = "zvl512b"), target_feature = "zvl256b"))]
-			e8x34_lmul = const 2,
-			#[cfg(not(target_feature = "zvl256b"))]
-			e8x34_lmul = const 4,
-			ts = in(reg) ts.as_ptr(),
-			t = lateout(reg) t,
-			num_pairs = lateout(reg) num_pairs,
-			pair_representatives = lateout(reg) pair_representatives,
-			options(nostack),
-		);
+					thirty_four = in(reg) 34_usize,
+					e8x34_lmul = const cfg_select! {
+						target_feature = "zvl512b" => 1,
+						target_feature = "zvl256b" => 2,
+						_ => 4,
+					},
+					ts = in(reg) ts.as_ptr(),
+					t = lateout(reg) t,
+					num_pairs = lateout(reg) num_pairs,
+					pair_representatives = lateout(reg) pair_representatives,
+					options(nostack),
+				);
+			}
+
+			(num_pairs == 6).then(|| {
+				let t = (t as u8) << 1;
+				// SAFETY: Since `num_pairs` is 6, `ts` is guaranteed to have contained six pairs and one unpaired tile,
+				// and `t` is guaranteed to be that tile.
+				let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
+				let ps = pair_representatives.to_le_bytes();
+				let ps = [ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]];
+				// SAFETY: The pairs are guaranteed to be valid tiles themselves since they were formed by ORing tiles
+				// that were equal to each other (after ignoring the "red" bit).
+				let ps = unsafe { core::mem::transmute::<[u8; 6], [Tile; 6]>(ps) };
+				let ps = ps.map(ScorableHandPair);
+				(ps, t)
+			})
+		}},
+
+		_ => {{
+			let mut first = 0_u64;
+			let mut second = 0_u64;
+			let mut invalid = 0_u64;
+			let mut pair_representatives = [0_u8; 34];
+
+			for &t in ts {
+				let t = t as u8;
+				let offset = t >> 1;
+				pair_representatives[usize::from(offset)] |= t;
+				let mask = 0b1_u64 << offset;
+				let first_mask = first & mask;
+				let second_mask = second & mask;
+				first |= mask;
+				second |= first_mask;
+				invalid |= second_mask;
+			}
+
+			if invalid | (u64::from(first.count_ones()) ^ 7) | (u64::from(second.count_ones()) ^ 6) != 0 {
+				return None;
+			}
+
+			#[expect(clippy::cast_possible_truncation)]
+			let t = ((first ^ second).trailing_zeros() as u8) << 1;
+			// SAFETY: At this point after the above comparisons, `ts` is guaranteed to have contained six pairs and one unpaired tile,
+			// and `t` is guaranteed to be that tile.
+			let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
+
+			let ps = cfg_select! {
+				all(target_arch = "x86_64", target_feature = "avx512vbmi2") => {{
+					// TODO(rustup): Use `core::simd` once it supports register compress.
+					//
+					// Ref: https://github.com/rust-lang/portable-simd/issues/240
+					let pair_representatives = core::simd::Simd::<u8, 64>::load_or_default(&pair_representatives);
+					let ps = unsafe { core::arch::x86_64::_mm512_maskz_compress_epi8(second, pair_representatives.into()) };
+					let ps = core::simd::Simd::from(ps);
+					let ps = ps.to_array();
+					[ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]]
+				}},
+
+				_ => {{
+					let mut ps = [const { core::mem::MaybeUninit::uninit() }; 6];
+					let mut second = second;
+					let mut offset = 0;
+					for p in &mut ps {
+						let i = second.trailing_zeros();
+						second >>= i + 1;
+
+						offset += i as usize;
+						// SAFETY: `second` is a mask of the indices into `pair_representatives` which contain valid pairs.
+						unsafe { core::hint::assert_unchecked(offset < pair_representatives.len()); }
+						let pair_representative = pair_representatives[offset];
+						p.write(pair_representative);
+						offset += 1;
+					}
+					// SAFETY: The loop above only terminates when all elements of `ps` have been initialized.
+					unsafe { core::mem::MaybeUninit::array_assume_init(ps) }
+				}},
+			};
+
+			// SAFETY: The pairs are guaranteed to be valid tiles themselves since they were formed by ORing tiles
+			// that were equal to each other (after ignoring the "red" bit).
+			let ps = unsafe { core::mem::transmute::<[u8; 6], [Tile; 6]>(ps) };
+			let ps = ps.map(ScorableHandPair);
+			Some((ps, t))
+		}},
 	}
-
-	(num_pairs == 6).then(|| {
-		let t = (t as u8) << 1;
-		// SAFETY: Since `num_pairs` is 6, `ts` is guaranteed to have contained six pairs and one unpaired tile,
-		// and `t` is guaranteed to be that tile.
-		let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
-		let ps = pair_representatives.to_le_bytes();
-		let ps = [ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]];
-		// SAFETY: The pairs are guaranteed to be valid tiles themselves since they were formed by ORing tiles
-		// that were equal to each other (after ignoring the "red" bit).
-		let ps = unsafe { core::mem::transmute::<[u8; 6], [Tile; 6]>(ps) };
-		let ps = ps.map(ScorableHandPair);
-		(ps, t)
-	})
-}
-
-#[cfg(not(all(target_arch = "riscv64", target_feature = "v")))]
-fn lookup_chiitoi_with_pairs(ts: &[Tile; 13]) -> Option<([ScorableHandPair; 6], Tile)> {
-	let mut first = 0_u64;
-	let mut second = 0_u64;
-	let mut invalid = 0_u64;
-	let mut pair_representatives = [0_u8; 34];
-
-	for &t in ts {
-		let t = t as u8;
-		let offset = t >> 1;
-		pair_representatives[usize::from(offset)] |= t;
-		let mask = 0b1_u64 << offset;
-		let first_mask = first & mask;
-		let second_mask = second & mask;
-		first |= mask;
-		second |= first_mask;
-		invalid |= second_mask;
-	}
-
-	if invalid | (u64::from(first.count_ones()) ^ 7) | (u64::from(second.count_ones()) ^ 6) != 0 {
-		return None;
-	}
-
-	#[expect(clippy::cast_possible_truncation)]
-	let t = ((first ^ second).trailing_zeros() as u8) << 1;
-	// SAFETY: At this point after the above comparisons, `ts` is guaranteed to have contained six pairs and one unpaired tile,
-	// and `t` is guaranteed to be that tile.
-	let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
-
-	let ps = {
-		let mut ps = [const { core::mem::MaybeUninit::uninit() }; 6];
-		let mut second = second;
-		let mut offset = 0;
-		for p in &mut ps {
-			let i = second.trailing_zeros();
-			second >>= i + 1;
-
-			offset += i as usize;
-			// SAFETY: `second` is a mask of the indices into `pair_representatives` which contain valid pairs.
-			unsafe { core::hint::assert_unchecked(offset < pair_representatives.len()); }
-			let pair_representative = pair_representatives[offset];
-			p.write(pair_representative);
-			offset += 1;
-		}
-		// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
-		// SAFETY: The loop above only terminates when all elements of `ps` have been initialized.
-		unsafe { core::mem::transmute::<[core::mem::MaybeUninit<u8>; 6], [u8; 6]>(ps) }
-	};
-
-	// SAFETY: The pairs are guaranteed to be valid tiles themselves since they were formed by ORing tiles
-	// that were equal to each other (after ignoring the "red" bit).
-	let ps = unsafe { core::mem::transmute::<[u8; 6], [Tile; 6]>(ps) };
-	let ps = ps.map(ScorableHandPair);
-	Some((ps, t))
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
@@ -2504,7 +2301,7 @@ mod tests {
 	fn find_shouminkan() {
 		let h = make_hand!(1m 2m 3m 4m 5m 6m 7m 8m 9m G { minkou E E E });
 		let mut shouminkans = h.find_shouminkans(t!(E));
-		assert_eq!(shouminkans.next().unwrap(), Hand(t![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m, G].into(), [make_hand!(@meld { minkan E E E E })].into()));
+		assert_eq!(shouminkans.next().unwrap(), Hand(t![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m, G], [make_hand!(@meld { minkan E E E E })]));
 		assert_eq!(shouminkans.next(), None);
 	}
 
@@ -2517,7 +2314,7 @@ mod tests {
 			// 22m => 2C2 = 1
 			assert_eq!(minkous.size_hint(), (0, Some(1)));
 			let mut minkous = minkous.clone();
-			assert!(matches!(minkous.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m].into(), [make_hand!(@meld { minkou 2m 2m 2m })].into()) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minkous.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m], [make_hand!(@meld { minkou 2m 2m 2m })]) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minkous.size_hint(), (0, Some(0)));
 			assert!(minkous.next().is_none());
 			assert_eq!(minkous.size_hint(), (0, Some(0)));
@@ -2525,7 +2322,7 @@ mod tests {
 
 		let hs: std::vec::Vec<_> = minkous.collect();
 		assert_eq!(hs.len(), 1);
-		assert!(hs[0].0 == Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m].into(), [make_hand!(@meld { minkou 2m 2m 2m })].into()) && hs[0].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		assert!(hs[0].0 == Hand(t![1m, 1m, 1m, 3m, 3m, 3m, 4m, 4m, 4m, 5m, 5m], [make_hand!(@meld { minkou 2m 2m 2m })]) && hs[0].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 	}
 
 	#[test]
@@ -2537,15 +2334,15 @@ mod tests {
 			// 23506m => 5C2 = 10
 			assert_eq!(minjuns.size_hint(), (0, Some(10)));
 			let mut minjuns = minjuns.clone();
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()) && allowed_discards == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 2m 3m 4m })]) && allowed_discards == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(9)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 5m })].into()) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 5m })]) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(5)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 0m })].into()) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 0m })]) && allowed_discards == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(4)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 5m 6m })].into()) && allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 5m 6m })]) && allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(1)));
-			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 0m 6m })].into()) && allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(minjuns.next(), Some((h, allowed_discards)) if h == Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 0m 6m })]) && allowed_discards == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]));
 			assert_eq!(minjuns.size_hint(), (0, Some(0)));
 			assert!(minjuns.next().is_none());
 			assert_eq!(minjuns.size_hint(), (0, Some(0)));
@@ -2553,11 +2350,11 @@ mod tests {
 
 		let hs: std::vec::Vec<_> = minjuns.collect();
 		assert_eq!(hs.len(), 5);
-		assert!(hs[0].0 == Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()) && hs[0].1 == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[1].0 == Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 5m })].into()) && hs[1].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[2].0 == Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 3m 4m 0m })].into()) && hs[2].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[3].0 == Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 5m 6m })].into()) && hs[3].1 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]);
-		assert!(hs[4].0 == Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G].into(), [make_hand!(@meld { minjun 4m 0m 6m })].into()) && hs[4].1 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]);
+		assert!(hs[0].0 == Hand(t![1m, 5m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 2m 3m 4m })]) && hs[0].1 == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		assert!(hs[1].0 == Hand(t![1m, 2m, 0m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 5m })]) && hs[1].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		assert!(hs[2].0 == Hand(t![1m, 2m, 5m, 6m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 3m 4m 0m })]) && hs[2].1 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		assert!(hs[3].0 == Hand(t![1m, 2m, 3m, 0m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 5m 6m })]) && hs[3].1 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]);
+		assert!(hs[4].0 == Hand(t![1m, 2m, 3m, 5m, 7m, 8m, E, E, E, G, G], [make_hand!(@meld { minjun 4m 0m 6m })]) && hs[4].1 == [0, 1, 2, 3, 5, 6, 7, 8, 9, 10]);
 	}
 
 	#[test]
@@ -2566,7 +2363,7 @@ mod tests {
 			let h = make_hand!(1m 1m 1m E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minkous(t!(1m)).collect();
 			for (h, allowed_discards) in hs {
-				assert_eq!(h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minkou 1m 1m 1m })].into()));
+				assert_eq!(h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minkou 1m 1m 1m })]));
 				assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 			}
 		}
@@ -2575,7 +2372,7 @@ mod tests {
 			let h = make_hand!(1p 2p 3p E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(2p)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![2p, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 1p 2p 3p })].into()));
+			assert_eq!(*h, Hand(t![2p, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 1p 2p 3p })]));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2583,7 +2380,7 @@ mod tests {
 			let h = make_hand!(1s 2s 3s E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(1s)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 1s 2s 3s })].into()));
+			assert_eq!(*h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 1s 2s 3s })]));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2591,7 +2388,7 @@ mod tests {
 			let h = make_hand!(1s 2s 3s E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(1s)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 1s 2s 3s })].into()));
+			assert_eq!(*h, Hand(t![1s, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 1s 2s 3s })]));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2599,7 +2396,7 @@ mod tests {
 			let h = make_hand!(1m 2m 3m E E E S S S W W W N);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(4m)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()));
+			assert_eq!(*h, Hand(t![1m, E, E, E, S, S, S, W, W, W, N], [make_hand!(@meld { minjun 2m 3m 4m })]));
 			assert_eq!(*allowed_discards, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		}
 
@@ -2613,16 +2410,16 @@ mod tests {
 			let h = make_hand!(1m 2m 3m 4m 5m 6m E E E S S S W);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(4m)).collect();
 			assert_eq!(hs.len(), 3);
-			assert!(matches!(&hs[0], (h, allowed_discards) if *h == Hand(t![1m, 4m, 5m, 6m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 2m 3m 4m })].into()) && *allowed_discards == [2, 3, 4, 5, 6, 7, 8, 9, 10]));
-			assert!(matches!(&hs[1], (h, allowed_discards) if *h == Hand(t![1m, 2m, 4m, 6m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 3m 4m 5m })].into()) && *allowed_discards == [0, 1, 3, 4, 5, 6, 7, 8, 9, 10]));
-			assert!(matches!(&hs[2], (h, allowed_discards) if *h == Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 4m 5m 6m })].into()) && *allowed_discards == [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(&hs[0], (h, allowed_discards) if *h == Hand(t![1m, 4m, 5m, 6m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 2m 3m 4m })]) && *allowed_discards == [2, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(&hs[1], (h, allowed_discards) if *h == Hand(t![1m, 2m, 4m, 6m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 3m 4m 5m })]) && *allowed_discards == [0, 1, 3, 4, 5, 6, 7, 8, 9, 10]));
+			assert!(matches!(&hs[2], (h, allowed_discards) if *h == Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 4m 5m 6m })]) && *allowed_discards == [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]));
 		}
 
 		{
 			let h = make_hand!(1m 2m 3m 4m 5m 6m E E E S S S W);
 			let hs: std::vec::Vec<_> = h.find_minjuns(tn!(7m)).collect();
 			let [(h, allowed_discards)] = &hs[..] else { panic!(); };
-			assert_eq!(*h, Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W].into(), [make_hand!(@meld { minjun 5m 6m 7m })].into()));
+			assert_eq!(*h, Hand(t![1m, 2m, 3m, 4m, E, E, E, S, S, S, W], [make_hand!(@meld { minjun 5m 6m 7m })]));
 			assert_eq!(*allowed_discards, [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]);
 		}
 	}

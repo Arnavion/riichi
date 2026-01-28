@@ -1,15 +1,5 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	typenum::{
-		Prod,
-		Sum,
-		U0, U1, U2, U3,
-	},
-};
-
 use crate::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 	CmpIgnoreRed as _,
 	except,
 	Number, NumberSuit, NumberTile, NumberTileClassified,
@@ -25,7 +15,8 @@ mod honors;
 #[path = "numbers.generated.rs"]
 mod numbers;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 enum Meld<M> {
 	M0,
 	M1(M),
@@ -34,7 +25,8 @@ enum Meld<M> {
 	M4(M, M, M, M),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 enum NumberMeld {
 	/// Ankou 111 / Pair 11
 	K0 = 0x00,
@@ -133,7 +125,8 @@ impl Meld<NumberMeld> {
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 enum Honor {
 	/// Ton
@@ -193,8 +186,9 @@ impl From<Meld<Honor>> for Meld<ScorableHandMeld> {
 	}
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct Keys<NT> {
+#[derive(Debug)]
+#[derive_const(Clone)]
+pub(crate) struct Keys<const NT: usize> {
 	man: u32,
 	i_man: u8,
 	pin: u32,
@@ -203,11 +197,10 @@ pub(crate) struct Keys<NT> {
 	i_sou: u8,
 	ji: u32,
 	i_ji: u8,
-	_nt: core::marker::PhantomData<NT>,
 }
 
-impl<NT> Keys<NT> {
-	pub(crate) fn push(mut self, t: Tile) -> Keys<Sum<NT, U1>> where NT: core::ops::Add<U1> {
+impl<const NT: usize> Keys<NT> {
+	pub(crate) fn push(mut self, t: Tile) -> Keys<{ NT + 1 }> {
 		self.push_inner(t);
 		Keys {
 			man: self.man,
@@ -218,11 +211,10 @@ impl<NT> Keys<NT> {
 			i_sou: self.i_sou,
 			ji: self.ji,
 			i_ji: self.i_ji,
-			_nt: Default::default(),
 		}
 	}
 
-	pub(crate) fn push_all<N>(mut self, ts: GenericArray<Tile, N>) -> Keys<Sum<NT, N>> where NT: core::ops::Add<N>, N: ArrayLength {
+	pub(crate) fn push_all<const N: usize>(mut self, ts: [Tile; N]) -> Keys<{ NT + N }> {
 		for t in ts {
 			self.push_inner(t);
 		}
@@ -235,7 +227,6 @@ impl<NT> Keys<NT> {
 			i_sou: self.i_sou,
 			ji: self.ji,
 			i_ji: self.i_ji,
-			_nt: Default::default(),
 		}
 	}
 
@@ -259,7 +250,7 @@ impl<NT> Keys<NT> {
 	}
 }
 
-impl Default for Keys<U0> {
+impl Default for Keys<0> {
 	fn default() -> Self {
 		Self {
 			man: 0,
@@ -270,15 +261,17 @@ impl Default for Keys<U0> {
 			i_sou: 0,
 			ji: 0,
 			i_ji: 0,
-			_nt: Default::default(),
 		}
 	}
 }
 
-pub(crate) struct Lookup<NM>(LookupInner, core::marker::PhantomData<NM>);
+#[derive(Debug)]
+#[derive_const(Clone)]
+pub(crate) struct Lookup<const NM: usize>(LookupInner);
 
 // Common implementation independent of `NM` to combat monomorphization bloat.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 struct LookupInner {
 	// The largest number slice will be 8 elements long, so u8 is sufficient to count.
 	man: &'static [(Meld<NumberMeld>, Option<NumberMeld>)],
@@ -289,24 +282,20 @@ struct LookupInner {
 	ji: Option<&'static (u32, Meld<Honor>, Option<Honor>)>,
 }
 
-impl<NM> Lookup<NM>
-where
-	NM: core::ops::Mul<U3>,
-	Prod<NM, U3>: core::ops::Add<U2>,
-{
+impl<const NM: usize> Lookup<NM> {
 	#[expect(clippy::needless_pass_by_value)]
-	pub(crate) fn new(keys: Keys<Sum<Prod<NM, U3>, U2>>) -> Self {
+	pub(crate) fn new(keys: Keys<{ NM * 3 + 2 }>) -> Self {
 		Self(LookupInner::new(
 			keys.man, keys.i_man,
 			keys.pin, keys.i_pin,
 			keys.sou, keys.i_sou,
 			keys.ji, keys.i_ji,
-		), Default::default())
+		))
 	}
 }
 
-impl<NM> Iterator for Lookup<NM> where NM: ArrayLength {
-	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandPair);
+impl<const NM: usize> Iterator for Lookup<NM> {
+	type Item = ([ScorableHandMeld; NM], ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let (man_melds, pin_melds, sou_melds, ji_melds, pair) = self.0.next()?;
@@ -317,25 +306,25 @@ impl<NM> Iterator for Lookup<NM> where NM: ArrayLength {
 				Meld::M0 => (),
 
 				Meld::M1(m1) => {
-					unsafe { core::hint::assert_unchecked(NM::USIZE >= 1); }
+					unsafe { core::hint::assert_unchecked(NM >= 1); }
 					unsafe { melds.push_unchecked(m1); }
 				},
 
 				Meld::M2(m1, m2) => {
-					unsafe { core::hint::assert_unchecked(NM::USIZE >= 2); }
+					unsafe { core::hint::assert_unchecked(NM >= 2); }
 					unsafe { melds.push_unchecked(m1); }
 					unsafe { melds.push_unchecked(m2); }
 				},
 
 				Meld::M3(m1, m2, m3) => {
-					unsafe { core::hint::assert_unchecked(NM::USIZE >= 3); }
+					unsafe { core::hint::assert_unchecked(NM >= 3); }
 					unsafe { melds.push_unchecked(m1); }
 					unsafe { melds.push_unchecked(m2); }
 					unsafe { melds.push_unchecked(m3); }
 				},
 
 				Meld::M4(m1, m2, m3, m4) => {
-					unsafe { core::hint::assert_unchecked(NM::USIZE >= 4); }
+					unsafe { core::hint::assert_unchecked(NM >= 4); }
 					unsafe { melds.push_unchecked(m1); }
 					unsafe { melds.push_unchecked(m2); }
 					unsafe { melds.push_unchecked(m3); }
@@ -423,20 +412,6 @@ impl LookupInner {
 	}
 }
 
-impl<NM> Clone for Lookup<NM> {
-	fn clone(&self) -> Self {
-		Self(self.0.clone(), self.1)
-	}
-}
-
-impl<NM> core::fmt::Debug for Lookup<NM> {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_tuple("Lookup")
-			.field(&self.0)
-			.finish()
-	}
-}
-
 impl Iterator for LookupInner {
 	type Item = (Meld<ScorableHandMeld>, Meld<ScorableHandMeld>, Meld<ScorableHandMeld>, Meld<ScorableHandMeld>, ScorableHandPair);
 
@@ -505,21 +480,26 @@ impl Iterator for LookupInner {
 	}
 }
 
-pub(crate) struct LookupForNewTile<NM>
+#[derive(Clone, Debug)]
+pub(crate) struct LookupForNewTile<const NM: usize>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
+	[(); (NM + 1) - 1]:,
+	[(); NM + 1]:,
+	[(); NM + 2]:,
 {
-	current: ArrayVecIntoIter<(GenericArray<ScorableHandMeld, NM>, ScorableHandFourthMeld, ScorableHandPair), Sum<NM, U2>>,
-	lookup: Lookup<Sum<NM, U1>>,
+	current: core::array::IntoIter<([ScorableHandMeld; (NM + 1) - 1], ScorableHandFourthMeld, ScorableHandPair), { NM + 2 }>,
+	lookup: Lookup<{ NM + 1 }>,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 }
 
-impl<NM> LookupForNewTile<NM>
+impl<const NM: usize> LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
+	[(); (NM + 1) - 1]:,
+	[(); NM + 1]:,
+	[(); NM + 2]:,
 {
-	pub(crate) fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub(crate) fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			current: Default::default(),
 			lookup,
@@ -529,40 +509,13 @@ where
 	}
 }
 
-impl<NM> Clone for LookupForNewTile<NM>
+impl<const NM: usize> Iterator for LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
+	[(); (NM + 1) - 1]:,
+	[(); NM + 1]:,
+	[(); NM + 2]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			current: self.current.clone(),
-			lookup: self.lookup.clone(),
-			new_tile: self.new_tile,
-			tsumo_or_ron: self.tsumo_or_ron,
-		}
-	}
-}
-
-impl<NM> core::fmt::Debug for LookupForNewTile<NM>
-where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("LookupForNewTile")
-			.field("current", &self.current)
-			.field("lookup", &self.lookup)
-			.field("new_tile", &self.new_tile)
-			.field("tsumo_or_ron", &self.tsumo_or_ron)
-			.finish()
-	}
-}
-
-impl<NM> Iterator for LookupForNewTile<NM>
-where
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength + core::ops::Sub<U1, Output = NM>> + core::ops::Add<U2, Output: ArrayLength>,
-	Lookup<Sum<NM, U1>>: Iterator<Item = (GenericArray<ScorableHandMeld, Sum<NM, U1>>, ScorableHandPair)>,
-{
-	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandFourthMeld, ScorableHandPair);
+	type Item = ([ScorableHandMeld; (NM + 1) - 1], ScorableHandFourthMeld, ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -571,11 +524,11 @@ where
 				let mut current = ArrayVec::new();
 				if pair.0.eq_ignore_red(&self.new_tile) {
 					let md = ms[0];
-					let ms = unsafe { except(&ms, [0].into()) };
+					let ms = unsafe { except::<_, { NM + 1 }, 1>(&ms, [0]) };
 					unsafe { current.push_unchecked((ms, ScorableHandFourthMeld::Tanki(md), pair)); }
 				}
 				for (i, &md) in ms.iter().enumerate() {
-					let ms = unsafe { except(&ms, [i].into()) };
+					let ms = unsafe { except::<_, { NM + 1 }, 1>(&ms, [i]) };
 					if let Some(md) = new_tile_in_meld(md, self.new_tile, self.tsumo_or_ron) {
 						unsafe { current.push_unchecked((ms, md, pair)); }
 					}
@@ -635,10 +588,9 @@ fn new_tile_in_meld(m: ScorableHandMeld, new_tile: Tile, tsumo_or_ron: TsumoOrRo
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
-
-	use generic_array::typenum::U4;
 
 	use crate::Tile37MultiSet;
 	use super::*;
@@ -751,14 +703,14 @@ mod tests {
 	fn to_meld() {
 		for ma in melds_last() {
 			let (t1, t2, t3, t4, new_tile, tsumo_or_ron) = fourth_meld_to_tiles(ma);
-			let ts = [t1, t2, t3, t4].into();
-			let expected = ([].into(), ma, ScorableHandPair(t!(1p)));
-			let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+			let ts = [t1, t2, t3, t4];
+			let expected = ([], ma, ScorableHandPair(t!(1p)));
+			let actual: std::vec::Vec<_> = LookupForNewTile::<0>::new(Lookup::<1>::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 			assert_eq!(actual, [expected], "{ma:?} did not meld into {expected:?}, only into {actual:?}");
 		}
 
 		// 124 -> X
-		assert!(Lookup::<U1>::new(Keys::default().push_all([t!(1s), t!(2s), t!(4s), t!(1p), t!(1p)].into())).next().is_none());
+		assert!(Lookup::<1>::new(Keys::default().push_all([t!(1s), t!(2s), t!(4s), t!(1p), t!(1p)])).next().is_none());
 	}
 
 	#[test]
@@ -778,14 +730,14 @@ mod tests {
 					continue;
 				}
 
-				let mut expected = ArrayVec::<_, U2>::new();
-				expected.push(([ma].into(), mb, ScorableHandPair(t!(1p)))).unwrap();
+				let mut expected = ArrayVec::<_, 2>::new();
+				expected.push(([ma], mb, ScorableHandPair(t!(1p)))).unwrap();
 				if let ScorableHandFourthMeld::Tanki(mb) = mb {
-					expected.push(([mb].into(), ScorableHandFourthMeld::Tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
+					expected.push(([mb], ScorableHandFourthMeld::Tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 				}
 
-				let ts = [t1, t2, t3, t4, t5, t6, t7].into();
-				let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+				let ts = [t1, t2, t3, t4, t5, t6, t7];
+				let actual: std::vec::Vec<_> = LookupForNewTile::<1>::new(Lookup::<2>::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 				assert!(
 					expected.iter().any(|expected| actual.contains(expected)),
 					"{ma:?} + {mb:?} did not meld into any of {expected:?}, only into {actual:?}",
@@ -819,20 +771,20 @@ mod tests {
 						continue;
 					}
 
-					let mut expected = ArrayVec::<_, U3>::new();
+					let mut expected = ArrayVec::<_, 3>::new();
 					{
-						let ms = { let mut ms = [ma, mb]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [ma, mb]; ms.sort_unstable(); ms };
 						expected.push((ms, mc, ScorableHandPair(t!(1p)))).unwrap();
 					}
 					if let ScorableHandFourthMeld::Tanki(mc) = mc {
-						let ms = { let mut ms = [ma, mc]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [ma, mc]; ms.sort_unstable(); ms };
 						expected.push((ms, ScorableHandFourthMeld::Tanki(mb), ScorableHandPair(t!(1p)))).unwrap();
-						let ms = { let mut ms = [mb, mc]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [mb, mc]; ms.sort_unstable(); ms };
 						expected.push((ms, ScorableHandFourthMeld::Tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 					}
 
-					let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10].into();
-					let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+					let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10];
+					let mut actual: std::vec::Vec<_> = LookupForNewTile::<2>::new(Lookup::<3>::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 					for (ms, ..) in &mut actual { ms.sort_unstable(); }
 					assert!(
 						expected.iter().any(|expected| actual.contains(expected)),
@@ -876,22 +828,22 @@ mod tests {
 							continue;
 						}
 
-						let mut expected = ArrayVec::<_, U4>::new();
+						let mut expected = ArrayVec::<_, 4>::new();
 						{
-							let ms = { let mut ms = [ma, mb, mc]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mb, mc]; ms.sort_unstable(); ms };
 							expected.push((ms, md, ScorableHandPair(t!(1p)))).unwrap();
 						}
 						if let ScorableHandFourthMeld::Tanki(md) = md {
-							let ms = { let mut ms = [ma, mb, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mb, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::Tanki(mc), ScorableHandPair(t!(1p)))).unwrap();
-							let ms = { let mut ms = [ma, mc, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mc, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::Tanki(mb), ScorableHandPair(t!(1p)))).unwrap();
-							let ms = { let mut ms = [mb, mc, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [mb, mc, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::Tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 						}
 
-						let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13].into();
-						let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+						let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13];
+						let mut actual: std::vec::Vec<_> = LookupForNewTile::<3>::new(Lookup::<4>::new(Keys::default().push_all(ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 						for (ms, ..) in &mut actual { ms.sort_unstable(); }
 						assert!(
 							expected.iter().any(|expected| actual.contains(expected)),

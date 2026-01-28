@@ -7,14 +7,16 @@ use crate::{
 	WindTile,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum Riichi {
 	NotRiichi,
 	Riichi { ippatsu: bool, double: bool },
 }
 
 /// Seat relative to this player's seat.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum SeatRelative {
 	/// Player to the right.
 	Shimocha,
@@ -25,7 +27,8 @@ pub enum SeatRelative {
 }
 
 /// Indicates where the winning tile was drawn from.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum WinningTileFrom {
 	/// The tile was drawn from the wall and was the last tile of the wall.
 	Haitei,
@@ -51,7 +54,8 @@ pub enum WinningTileFrom {
 /// Broken down score for a [`ScorableHand`].
 ///
 /// `Default` impl sets all fields to 0.
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Copy)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct Score {
 	/// 20 for regular, 25 for chiitoi, 0 for kokushi musou.
 	pub base: Fu,
@@ -170,16 +174,20 @@ pub struct Score {
 	pub chiihou: Yakuman,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct Fu(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct Han(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct Yakuman(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct ScoreAggregate {
 	pub fu: Fu,
 	pub han: Han,
@@ -187,7 +195,8 @@ pub struct ScoreAggregate {
 }
 
 /// The points to be taken from all players identified by their positions relative to the current player.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct Points {
 	/// Points from riichi sticks in play.
 	pub riichi_bou: u32,
@@ -200,7 +209,8 @@ pub struct Points {
 }
 
 /// The points to be added or subtracted from all players identified by their seat winds.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct PointsAbsolute {
 	/// Points delta for the East seat player.
 	pub ton: i32,
@@ -389,7 +399,7 @@ impl ScorableHand {
 }
 
 impl ScorableHandMeld {
-	fn fu(self) -> Fu {
+	const fn fu(self) -> Fu {
 		// Micro-optimization: If `Anjun | Minjun` arm does `return Fu(0)`, the whole match compiles to a jump table
 		// with a different target for every variant. Being consistent about returning a `(base, t)` pair makes it better;
 		// it extracts the base by shifting a constant by the discriminant and `t` is at the same offset for every arm.
@@ -406,7 +416,7 @@ impl ScorableHandMeld {
 }
 
 impl ScorableHandFourthMeld {
-	fn fu(self) -> (Fu, Fu) {
+	const fn fu(self) -> (Fu, Fu) {
 		let meld4 = ScorableHandMeld::from(self).fu();
 		let wait = match self {
 			Self::Tanki(_) |
@@ -421,12 +431,12 @@ impl ScorableHandFourthMeld {
 }
 
 impl ScorableHandPair {
-	fn fu(self, round_wind: WindTile, seat_wind: WindTile) -> Fu {
+	const fn fu(self, round_wind: WindTile, seat_wind: WindTile) -> Fu {
 		Fu(self.num_yakuhai(round_wind, seat_wind) * 2)
 	}
 }
 
-impl From<WinningTileFrom> for TsumoOrRon {
+impl const From<WinningTileFrom> for TsumoOrRon {
 	fn from(wtf: WinningTileFrom) -> Self {
 		match wtf {
 			WinningTileFrom::Haitei |
@@ -679,7 +689,7 @@ impl Score {
 	}
 }
 
-impl core::ops::Add for Fu {
+impl const core::ops::Add for Fu {
 	type Output = Self;
 
 	fn add(self, other: Self) -> Self::Output {
@@ -693,7 +703,7 @@ impl core::fmt::Display for Fu {
 	}
 }
 
-impl core::ops::Add for Han {
+impl const core::ops::Add for Han {
 	type Output = Self;
 
 	fn add(self, other: Self) -> Self::Output {
@@ -707,7 +717,7 @@ impl core::fmt::Display for Han {
 	}
 }
 
-impl core::ops::Add for Yakuman {
+impl const core::ops::Add for Yakuman {
 	type Output = Self;
 
 	fn add(self, other: Self) -> Self::Output {
@@ -758,7 +768,7 @@ impl core::fmt::Display for ScoreAggregate {
 	}
 }
 
-impl From<Score> for ScoreAggregate {
+impl const From<Score> for ScoreAggregate {
 	fn from(score: Score) -> Self {
 		let Score {
 			base,
@@ -941,7 +951,7 @@ impl core::fmt::Display for Points {
 	}
 }
 
-impl core::ops::Index<SeatRelative> for Points {
+impl const core::ops::Index<SeatRelative> for Points {
 	type Output = u32;
 
 	fn index(&self, seat: SeatRelative) -> &Self::Output {
@@ -953,7 +963,7 @@ impl core::ops::Index<SeatRelative> for Points {
 	}
 }
 
-impl core::ops::IndexMut<SeatRelative> for Points {
+impl const core::ops::IndexMut<SeatRelative> for Points {
 	fn index_mut(&mut self, seat: SeatRelative) -> &mut Self::Output {
 		match seat {
 			SeatRelative::Shimocha => &mut self.shimocha,
@@ -1034,6 +1044,7 @@ fn dora_match(doras: &[Tile], tile: Tile) -> u8 {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
