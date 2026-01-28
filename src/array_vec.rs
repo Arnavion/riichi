@@ -1,22 +1,17 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-};
-
 use crate::CmpIgnoreRed;
 
 /// A sequence of contiguous elements like a [`Vec`](alloc::vec::Vec), but backed by a fixed-length array.
 ///
 /// An `ArrayVec` thus has a concept of being full, and pushing into a full `ArrayVec` fails.
-pub struct ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
-	inner: GenericArray<core::mem::MaybeUninit<T>, CAPACITY>,
+pub struct ArrayVec<T, const CAPACITY: usize> {
+	inner: [core::mem::MaybeUninit<T>; CAPACITY],
 	len: usize,
 }
 
-impl<T, CAPACITY> ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> ArrayVec<T, CAPACITY> {
 	pub const fn new() -> Self {
 		Self {
-			inner: GenericArray::uninit(),
+			inner: [const { core::mem::MaybeUninit::uninit() }; CAPACITY],
 			len: 0,
 		}
 	}
@@ -24,7 +19,7 @@ impl<T, CAPACITY> ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
 	/// # Errors
 	///
 	/// Returns the given element if this `ArrayVec` is already full.
-	pub fn push(&mut self, element: T) -> Result<(), T> {
+	pub const fn push(&mut self, element: T) -> Result<(), T> {
 		unsafe { core::hint::assert_unchecked(self.len <= self.inner.len()) };
 
 		match self.inner.get_mut(self.len) {
@@ -40,12 +35,12 @@ impl<T, CAPACITY> ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
 	/// # Safety
 	///
 	/// Requires `self.len() < CAPACITY`.
-	pub(crate) unsafe fn push_unchecked(&mut self, element: T) {
+	pub(crate) const unsafe fn push_unchecked(&mut self, element: T) {
 		let result = self.push(element);
 		unsafe { result.unwrap_unchecked(); }
 	}
 
-	pub fn pop(&mut self) -> Option<T> {
+	pub const fn pop(&mut self) -> Option<T> {
 		unsafe { core::hint::assert_unchecked(self.len <= self.inner.len()) };
 
 		let new_len = self.len.checked_sub(1)?;
@@ -64,7 +59,7 @@ impl<T, CAPACITY> ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
 	}
 }
 
-impl<T, CAPACITY> Clone for ArrayVec<T, CAPACITY> where T: Clone, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> Clone for ArrayVec<T, CAPACITY> where T: Clone {
 	fn clone(&self) -> Self {
 		let inner = unsafe { clone_inner(&self.inner, self.len) };
 		Self {
@@ -74,25 +69,25 @@ impl<T, CAPACITY> Clone for ArrayVec<T, CAPACITY> where T: Clone, CAPACITY: Arra
 	}
 }
 
-impl<T, CAPACITY> CmpIgnoreRed for ArrayVec<T, CAPACITY> where T: CmpIgnoreRed, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> const CmpIgnoreRed for ArrayVec<T, CAPACITY> where T: const CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		<[_]>::cmp_ignore_red(&**self, &**other)
 	}
 }
 
-impl<T, CAPACITY> core::fmt::Debug for ArrayVec<T, CAPACITY> where T: core::fmt::Debug, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> core::fmt::Debug for ArrayVec<T, CAPACITY> where T: core::fmt::Debug {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		<[_]>::fmt(self, f)
 	}
 }
 
-impl<T, CAPACITY> Default for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> const Default for ArrayVec<T, CAPACITY> {
 	fn default() -> Self {
 		Self::new()
 	}
 }
 
-impl<T, CAPACITY> core::ops::Deref for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> const core::ops::Deref for ArrayVec<T, CAPACITY> {
 	type Target = [T];
 
 	fn deref(&self) -> &Self::Target {
@@ -100,7 +95,7 @@ impl<T, CAPACITY> core::ops::Deref for ArrayVec<T, CAPACITY> where CAPACITY: Arr
 	}
 }
 
-impl<T, CAPACITY> core::ops::DerefMut for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> const core::ops::DerefMut for ArrayVec<T, CAPACITY> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		unsafe { core::hint::assert_unchecked(self.len <= self.inner.len()) };
 
@@ -108,7 +103,7 @@ impl<T, CAPACITY> core::ops::DerefMut for ArrayVec<T, CAPACITY> where CAPACITY: 
 	}
 }
 
-impl<T, CAPACITY> Drop for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> const Drop for ArrayVec<T, CAPACITY> where T: [const] core::marker::Destruct {
 	fn drop(&mut self) {
 		unsafe { core::hint::assert_unchecked(self.len <= self.inner.len()) };
 
@@ -116,17 +111,16 @@ impl<T, CAPACITY> Drop for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
 	}
 }
 
-impl<T, CAPACITY> Extend<T> for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> Extend<T> for ArrayVec<T, CAPACITY> {
 	fn extend<I>(&mut self, iter: I) where I: IntoIterator<Item = T> {
-		for element in iter {
-			if self.push(element).is_err() {
-				return;
-			}
-		}
+		unsafe { core::hint::assert_unchecked(self.len <= self.inner.len()) };
+
+		let (written, _) = self.inner[self.len..].write_iter(iter);
+		self.len += written.len();
 	}
 }
 
-impl<T, CAPACITY> FromIterator<T> for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> FromIterator<T> for ArrayVec<T, CAPACITY> {
 	fn from_iter<I>(iter: I) -> Self where I: IntoIterator<Item = T> {
 		let mut result = Self::new();
 		result.extend(iter);
@@ -134,38 +128,38 @@ impl<T, CAPACITY> FromIterator<T> for ArrayVec<T, CAPACITY> where CAPACITY: Arra
 	}
 }
 
-impl<T, CAPACITY> IntoIterator for ArrayVec<T, CAPACITY> where CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> IntoIterator for ArrayVec<T, CAPACITY> {
 	type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
-	type IntoIter = ArrayVecIntoIter<T, CAPACITY>;
+	type IntoIter = core::array::IntoIter<T, CAPACITY>;
 
 	fn into_iter(mut self) -> Self::IntoIter {
 		let (inner, len) = unsafe { take_inner(&mut self) };
 		let range = 0..len;
-		ArrayVecIntoIter { inner, range }
+		unsafe { core::array::IntoIter::new_unchecked(inner, range) }
 	}
 }
 
-impl<T, CAPACITY> PartialEq for ArrayVec<T, CAPACITY> where T: PartialEq, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> const PartialEq for ArrayVec<T, CAPACITY> where T: [const] PartialEq {
 	fn eq(&self, other: &Self) -> bool {
 		<[_]>::eq(&**self, &**other)
 	}
 }
 
-impl<T, CAPACITY, const N: usize> PartialEq<[T; N]> for ArrayVec<T, CAPACITY> where T: PartialEq, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize, const N: usize> const PartialEq<[T; N]> for ArrayVec<T, CAPACITY> where T: [const] PartialEq {
 	fn eq(&self, other: &[T; N]) -> bool {
 		<[_]>::eq(&**self, other)
 	}
 }
 
-impl<T, CAPACITY> Eq for ArrayVec<T, CAPACITY> where T: Eq, CAPACITY: ArrayLength {}
+impl<T, const CAPACITY: usize> const Eq for ArrayVec<T, CAPACITY> where T: [const] Eq {}
 
-impl<T, N, CAPACITY> TryFrom<GenericArray<T, N>> for ArrayVec<T, CAPACITY> where N: ArrayLength, CAPACITY: ArrayLength {
-	type Error = GenericArray<T, N>;
+impl<T, const N: usize, const CAPACITY: usize> TryFrom<[T; N]> for ArrayVec<T, CAPACITY> {
+	type Error = [T; N];
 
-	fn try_from(arr: GenericArray<T, N>) -> Result<Self, Self::Error> {
-		if CAPACITY::USIZE >= N::USIZE {
+	fn try_from(arr: [T; N]) -> Result<Self, Self::Error> {
+		if CAPACITY >= N {
 			let mut result = Self::new();
-			unsafe { core::ptr::copy(&raw const arr, result.inner.as_mut_ptr().cast(), N::USIZE); }
+			unsafe { core::ptr::copy(&raw const arr, result.inner.as_mut_ptr().cast(), N); }
 			core::mem::forget(arr);
 			Ok(result)
 		}
@@ -175,13 +169,13 @@ impl<T, N, CAPACITY> TryFrom<GenericArray<T, N>> for ArrayVec<T, CAPACITY> where
 	}
 }
 
-impl<T, CAPACITY, N> TryFrom<ArrayVec<T, CAPACITY>> for GenericArray<T, N> where CAPACITY: ArrayLength, N: ArrayLength {
+impl<T, const CAPACITY: usize, const N: usize> const TryFrom<ArrayVec<T, CAPACITY>> for [T; N] where T: [const] core::marker::Destruct {
 	type Error = ArrayVec<T, CAPACITY>;
 
 	fn try_from(mut arr: ArrayVec<T, CAPACITY>) -> Result<Self, Self::Error> {
-		if arr.len == N::USIZE {
-			let result = unsafe { core::mem::transmute_copy::<GenericArray<core::mem::MaybeUninit<T>, CAPACITY>, GenericArray<core::mem::MaybeUninit<T>, N>>(&arr.inner) };
-			let result = unsafe { GenericArray::assume_init(result) };
+		if arr.len == N {
+			let result = unsafe { core::mem::transmute_copy::<[core::mem::MaybeUninit<T>; CAPACITY], [core::mem::MaybeUninit<T>; N]>(&arr.inner) };
+			let result = unsafe { core::mem::MaybeUninit::array_assume_init(result) };
 			arr.len = 0;
 			Ok(result)
 		}
@@ -191,92 +185,12 @@ impl<T, CAPACITY, N> TryFrom<ArrayVec<T, CAPACITY>> for GenericArray<T, N> where
 	}
 }
 
-pub struct ArrayVecIntoIter<T, CAPACITY> where CAPACITY: ArrayLength {
-	inner: GenericArray<core::mem::MaybeUninit<T>, CAPACITY>,
-	range: core::ops::Range<usize>,
-}
-
-impl<T, CAPACITY> Clone for ArrayVecIntoIter<T, CAPACITY> where T: Clone, CAPACITY: ArrayLength {
-	fn clone(&self) -> Self {
-		unsafe { core::hint::assert_unchecked(self.range.start <= self.range.end) };
-		unsafe { core::hint::assert_unchecked(self.range.end <= self.inner.len()) };
-
-		let mut inner = GenericArray::uninit();
-		let src = unsafe { self.inner[self.range.clone()].assume_init_ref() };
-		inner[self.range.clone()].write_clone_of_slice(src);
-		Self {
-			inner,
-			range: self.range.clone(),
-		}
-	}
-}
-
-impl<T, CAPACITY> Default for ArrayVecIntoIter<T, CAPACITY> where T: core::fmt::Debug, CAPACITY: ArrayLength {
-	fn default() -> Self {
-		Self {
-			inner: GenericArray::uninit(),
-			range: 0..0,
-		}
-	}
-}
-
-impl<T, CAPACITY> core::fmt::Debug for ArrayVecIntoIter<T, CAPACITY> where T: core::fmt::Debug, CAPACITY: ArrayLength {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		unsafe { core::hint::assert_unchecked(self.range.start <= self.range.end) };
-		unsafe { core::hint::assert_unchecked(self.range.end <= self.inner.len()) };
-
-		let inner = unsafe { self.inner[self.range.clone()].assume_init_ref() };
-		f.debug_struct("ArrayVecIntoIter").field("inner", &inner).finish()
-	}
-}
-
-impl<T, CAPACITY> Drop for ArrayVecIntoIter<T, CAPACITY> where CAPACITY: ArrayLength {
-	fn drop(&mut self) {
-		unsafe { core::hint::assert_unchecked(self.range.start <= self.range.end) };
-		unsafe { core::hint::assert_unchecked(self.range.end <= self.inner.len()) };
-
-		unsafe { self.inner[self.range.clone()].assume_init_drop(); }
-	}
-}
-
-impl<T, CAPACITY> Iterator for ArrayVecIntoIter<T, CAPACITY> where CAPACITY: ArrayLength {
-	type Item = T;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		unsafe { core::hint::assert_unchecked(self.range.start <= self.range.end) };
-		unsafe { core::hint::assert_unchecked(self.range.end <= self.inner.len()) };
-
-		let i = self.range.next()?;
-		let element = unsafe { self.inner[i].assume_init_read() };
-		Some(element)
-	}
-
-	fn size_hint(&self) -> (usize, Option<usize>) {
-		self.range.size_hint()
-	}
-}
-
-impl<T, CAPACITY> DoubleEndedIterator for ArrayVecIntoIter<T, CAPACITY> where CAPACITY: ArrayLength {
-	fn next_back(&mut self) -> Option<Self::Item> {
-		unsafe { core::hint::assert_unchecked(self.range.start <= self.range.end) };
-		unsafe { core::hint::assert_unchecked(self.range.end <= self.inner.len()) };
-
-		let i = self.range.next_back()?;
-		let element = unsafe { self.inner[i].assume_init_read() };
-		Some(element)
-	}
-}
-
-impl<T, CAPACITY> ExactSizeIterator for ArrayVecIntoIter<T, CAPACITY> where CAPACITY: ArrayLength {}
-
-impl<T, CAPACITY> core::iter::FusedIterator for ArrayVecIntoIter<T, CAPACITY> where CAPACITY: ArrayLength {}
-
-pub(crate) struct ArrayVecIntoCombinations<T, CAPACITY> where CAPACITY: ArrayLength {
-	inner: GenericArray<core::mem::MaybeUninit<T>, CAPACITY>,
+pub(crate) struct ArrayVecIntoCombinations<T, const CAPACITY: usize> {
+	inner: [core::mem::MaybeUninit<T>; CAPACITY],
 	combinations: Combinations,
 }
 
-impl<T, CAPACITY> Clone for ArrayVecIntoCombinations<T, CAPACITY> where T: Clone, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> Clone for ArrayVecIntoCombinations<T, CAPACITY> where T: Clone {
 	fn clone(&self) -> Self {
 		let inner = unsafe { clone_inner(&self.inner, self.combinations.n) };
 		Self {
@@ -286,7 +200,7 @@ impl<T, CAPACITY> Clone for ArrayVecIntoCombinations<T, CAPACITY> where T: Clone
 	}
 }
 
-impl<T, CAPACITY> core::fmt::Debug for ArrayVecIntoCombinations<T, CAPACITY> where T: core::fmt::Debug, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> core::fmt::Debug for ArrayVecIntoCombinations<T, CAPACITY> where T: core::fmt::Debug {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let inner = unsafe { deref_inner(&self.inner, self.combinations.n) };
 		f.debug_struct("ArrayVecIntoCombinations")
@@ -296,7 +210,7 @@ impl<T, CAPACITY> core::fmt::Debug for ArrayVecIntoCombinations<T, CAPACITY> whe
 	}
 }
 
-impl<T, CAPACITY> Iterator for ArrayVecIntoCombinations<T, CAPACITY> where T: Clone, CAPACITY: ArrayLength {
+impl<T, const CAPACITY: usize> Iterator for ArrayVecIntoCombinations<T, CAPACITY> where T: Clone {
 	type Item = (T, T);
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -314,11 +228,14 @@ impl<T, CAPACITY> Iterator for ArrayVecIntoCombinations<T, CAPACITY> where T: Cl
 	}
 }
 
-impl<T, CAPACITY> ExactSizeIterator for ArrayVecIntoCombinations<T, CAPACITY> where Self: Iterator, CAPACITY: ArrayLength {}
+impl<T, const CAPACITY: usize> ExactSizeIterator for ArrayVecIntoCombinations<T, CAPACITY> where Self: Iterator {}
 
-impl<T, CAPACITY> core::iter::FusedIterator for ArrayVecIntoCombinations<T, CAPACITY> where Self: Iterator, CAPACITY: ArrayLength {}
+impl<T, const CAPACITY: usize> core::iter::FusedIterator for ArrayVecIntoCombinations<T, CAPACITY> where Self: Iterator {}
 
-#[derive(Clone, Debug)]
+unsafe impl<T, const CAPACITY: usize> core::iter::TrustedLen for ArrayVecIntoCombinations<T, CAPACITY> where Self: Iterator {}
+
+#[derive_const(Clone)]
+#[derive(Debug)]
 struct Combinations {
 	n: usize,
 	i1: usize,
@@ -368,22 +285,24 @@ impl ExactSizeIterator for Combinations {}
 
 impl core::iter::FusedIterator for Combinations {}
 
-unsafe fn clone_inner<T, CAPACITY>(src: &GenericArray<core::mem::MaybeUninit<T>, CAPACITY>, len: usize) -> GenericArray<core::mem::MaybeUninit<T>, CAPACITY> where T: Clone, CAPACITY: ArrayLength {
+unsafe impl core::iter::TrustedLen for Combinations {}
+
+unsafe fn clone_inner<T, const CAPACITY: usize>(src: &[core::mem::MaybeUninit<T>; CAPACITY], len: usize) -> [core::mem::MaybeUninit<T>; CAPACITY] where T: Clone {
 	unsafe { core::hint::assert_unchecked(len <= src.len()) };
 
-	let mut result = GenericArray::uninit();
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; CAPACITY];
 	let src = unsafe { src[..len].assume_init_ref() };
 	result[..len].write_clone_of_slice(src);
 	result
 }
 
-unsafe fn deref_inner<T, CAPACITY>(arr: &GenericArray<core::mem::MaybeUninit<T>, CAPACITY>, len: usize) -> &[T] where CAPACITY: ArrayLength {
+const unsafe fn deref_inner<T, const CAPACITY: usize>(arr: &[core::mem::MaybeUninit<T>; CAPACITY], len: usize) -> &[T] {
 	unsafe { core::hint::assert_unchecked(len <= arr.len()) };
 
 	unsafe { arr[..len].assume_init_ref() }
 }
 
-const unsafe fn take_inner<T, CAPACITY>(arr: &mut ArrayVec<T, CAPACITY>) -> (GenericArray<core::mem::MaybeUninit<T>, CAPACITY>, usize) where CAPACITY: ArrayLength {
+const unsafe fn take_inner<T, const CAPACITY: usize>(arr: &mut ArrayVec<T, CAPACITY>) -> ([core::mem::MaybeUninit<T>; CAPACITY], usize) {
 	let result = unsafe { core::ptr::read(&raw const arr.inner) };
 	let len = core::mem::replace(&mut arr.len, 0);
 	(result, len)
