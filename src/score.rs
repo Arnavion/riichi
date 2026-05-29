@@ -6,14 +6,16 @@ use crate::{
 	scorable_hand::Dairin,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum Riichi {
 	NotRiichi,
 	Riichi { ippatsu: bool, double: bool },
 }
 
 /// Seat relative to this player's seat.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum SeatRelative {
 	/// Player to the right.
 	Shimocha,
@@ -24,7 +26,8 @@ pub enum SeatRelative {
 }
 
 /// Indicates where the winning tile was drawn from.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum WinningTileFrom {
 	/// The tile was drawn from the wall and was the last tile of the wall.
 	Haitei,
@@ -57,7 +60,9 @@ pub enum WinningTileFrom {
 /// Broken down score for a [`ScorableHand`].
 ///
 /// `Default` impl sets all fields to 0.
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Copy)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
+#[repr(C)]
 pub struct Score {
 	/// 20 for regular, 25 for chiitoi, 0 for kokushi musou.
 	pub base: Fu,
@@ -201,16 +206,23 @@ pub struct Score {
 	pub daichisei: Yakuman,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct Fu(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct Han(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct Yakuman(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 pub struct ScoreAggregate {
 	pub fu: Fu,
 	pub han: Han,
@@ -218,7 +230,8 @@ pub struct ScoreAggregate {
 }
 
 /// The points to be taken from all players identified by their positions relative to the current player.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct Points {
 	/// Points from riichi sticks in play.
@@ -232,7 +245,8 @@ pub struct Points {
 }
 
 /// The points to be added or subtracted from all players identified by their seat winds.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct PointsAbsolute {
 	/// Points delta for the East seat player.
@@ -244,6 +258,8 @@ pub struct PointsAbsolute {
 	/// Points delta for the North seat player.
 	pub pei: i32,
 }
+
+assert_size_of!(Score, 10 + 41 + 19);
 
 impl WinningTileFrom {
 	const fn ron_seat(self) -> Option<SeatRelative> {
@@ -500,7 +516,7 @@ impl ScorableHand {
 }
 
 impl ScorableHandMeld {
-	fn fu(self) -> Fu {
+	const fn fu(self) -> Fu {
 		// Micro-optimization: If `Anjun | Minjun` arm does `return Fu(0)`, the whole match compiles to a jump table
 		// with a different target for every variant. Being consistent about returning a `(base, t)` pair makes it better;
 		// it extracts the base by shifting a constant by the discriminant and `t` is at the same offset for every arm.
@@ -517,7 +533,7 @@ impl ScorableHandMeld {
 }
 
 impl ScorableHandFourthMeld {
-	fn fu(self) -> (Fu, Fu) {
+	const fn fu(self) -> (Fu, Fu) {
 		let m4_fu = ScorableHandMeld::from(self).fu();
 
 		// This match is the proper impl, but it generates a jump table. We can do better with some comparisons on the waits.
@@ -547,12 +563,12 @@ impl ScorableHandFourthMeld {
 }
 
 impl ScorableHandPair {
-	fn fu(self, round_wind: WindTile, seat_wind: WindTile) -> Fu {
+	const fn fu(self, round_wind: WindTile, seat_wind: WindTile) -> Fu {
 		Fu(self.num_yakuhai(round_wind, seat_wind) * 2)
 	}
 }
 
-impl From<WinningTileFrom> for TsumoOrRon {
+const impl From<WinningTileFrom> for TsumoOrRon {
 	fn from(wtf: WinningTileFrom) -> Self {
 		match wtf {
 			WinningTileFrom::Haitei |
@@ -787,38 +803,24 @@ impl Score {
 	}
 
 	fn fu(&self) -> Fu {
-		self.base +
-			self.win_condition +
-			self.meld1 + self.meld2 + self.meld3 + self.meld4 + self.pair +
-			self.wait + self.open_pinfu +
-			self.rounding
+		let this = unsafe { &*<*const Self>::cast::<[u8; 10]>(self) };
+		let fu = core::simd::Simd::from_array(*this);
+		let fu = core::simd::num::SimdUint::reduce_sum(fu);
+		Fu(fu)
 	}
 
 	fn han(&self) -> Han {
-		self.mentsumo + self.riichi + self.ippatsu + self.pinfu + self.iipeikou +
-			self.haitei + self.houtei + self.rinshan + self.chankan + self.tanyao +
-			self.yakuhai_ton + self.yakuhai_nan + self.yakuhai_shaa + self.yakuhai_pei + self.yakuhai_haku + self.yakuhai_hatsu + self.yakuhai_chun +
-			self.tsubame_gaeshi + self.kanburi + self.shiiaru_raotai +
-			self.chanta + self.sanshoku_doujun + self.ittsuu +
-			self.toitoi + self.sanankou + self.sanshoku_doukou + self.sankantsu + self.chiitoi + self.honroutou + self.shousangen +
-			self.uumensai + self.sanrenkou +
-			self.honitsu + self.junchan + self.ryanpeikou +
-			self.isshoku_sanjun + self.iipin_mouyue + self.chuupin_raoyui +
-			self.chinitsu +
-			self.dora + self.nukidora
+		let this = unsafe { &*<*const Self>::cast::<[u8; 10 + 41]>(self) };
+		let han = core::simd::Simd::<_, 41>::from_slice(&this[10..]);
+		let han = core::simd::num::SimdUint::reduce_sum(han);
+		Han(han)
 	}
 
 	fn yakuman(&self) -> Yakuman {
-		self.kazoe_yakuman + self.kokushi_musou + self.suuankou + self.daisangen + self.shousuushii + self.daisuushii + self.tsuuiisou + self.chinroutou + self.ryuuiisou + self.chuuren_poutou + self.suukantsu + self.tenhou + self.chiihou +
-		self.renhou + self.daisharin + self.daichikurin + self.daisuurin + self.ishi_no_ue_ni_mo_sannen + self.daichisei
-	}
-}
-
-impl core::ops::Add for Fu {
-	type Output = Self;
-
-	fn add(self, other: Self) -> Self::Output {
-		Self(self.0 + other.0)
+		let this = unsafe { &*<*const Self>::cast::<[u8; 10 + 41 + 19]>(self) };
+		let yakuman = core::simd::Simd::<_, 19>::from_slice(&this[10 + 41..]);
+		let yakuman = core::simd::num::SimdUint::reduce_sum(yakuman);
+		Yakuman(yakuman)
 	}
 }
 
@@ -828,25 +830,9 @@ impl core::fmt::Display for Fu {
 	}
 }
 
-impl core::ops::Add for Han {
-	type Output = Self;
-
-	fn add(self, other: Self) -> Self::Output {
-		Self(self.0 + other.0)
-	}
-}
-
 impl core::fmt::Display for Han {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		write!(f, "{} han", self.0)
-	}
-}
-
-impl core::ops::Add for Yakuman {
-	type Output = Self;
-
-	fn add(self, other: Self) -> Self::Output {
-		Self(self.0 + other.0)
 	}
 }
 
@@ -926,10 +912,10 @@ impl Points {
 			let shimocha = (me + 1) % 4;
 			let toimen = (me + 2) % 4;
 			let kamicha = (me + 3) % 4;
-			let me = unsafe { (&raw mut (*result).ton).add(me as usize) };
-			let shimocha = unsafe { (&raw mut (*result).ton).add(shimocha as usize) };
-			let toimen = unsafe { (&raw mut (*result).ton).add(toimen as usize) };
-			let kamicha = unsafe { (&raw mut (*result).ton).add(kamicha as usize) };
+			let me = unsafe { (&raw mut (*result).ton).add(me.into()) };
+			let shimocha = unsafe { (&raw mut (*result).ton).add(shimocha.into()) };
+			let toimen = unsafe { (&raw mut (*result).ton).add(toimen.into()) };
+			let kamicha = unsafe { (&raw mut (*result).ton).add(kamicha.into()) };
 			unsafe {
 				me.write(self.total().cast_signed());
 				shimocha.write(-(self.shimocha.cast_signed()));
@@ -961,7 +947,7 @@ impl core::fmt::Display for Points {
 	}
 }
 
-impl core::ops::Index<SeatRelative> for Points {
+const impl core::ops::Index<SeatRelative> for Points {
 	type Output = u32;
 
 	fn index(&self, seat: SeatRelative) -> &Self::Output {
@@ -973,7 +959,7 @@ impl core::ops::Index<SeatRelative> for Points {
 	}
 }
 
-impl core::ops::IndexMut<SeatRelative> for Points {
+const impl core::ops::IndexMut<SeatRelative> for Points {
 	fn index_mut(&mut self, seat: SeatRelative) -> &mut Self::Output {
 		match seat {
 			SeatRelative::Shimocha => &mut self.shimocha,
@@ -1049,11 +1035,12 @@ pub fn max_score(
 }
 
 #[expect(clippy::cast_possible_truncation)]
-fn dora_match(doras: &Tile34MultiSet, tile: Tile) -> u8 {
+const fn dora_match(doras: &Tile34MultiSet, tile: Tile) -> u8 {
 	u8::from(tile.is_red()) + doras.get(tile) as u8
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
