@@ -1,0 +1,11 @@
+[package]
+name = "riichi-decompose-lut"
+version = "0.1.0"
+license = "AGPL-3.0-only"
+authors = ["Arnav Singh <me@arnavion.dev>"]
+edition = "2024"
+
+[dependencies]
+
+[lints]
+workspace = true
