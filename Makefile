@@ -3,7 +3,7 @@
 default: test
 
 clean:
-	rm -rf Cargo.lock target/ target-rv/ target-rvv-*/ target-x86_64/
+	rm -rf Cargo.lock target/ target-rv/ target-rvv/ target-x86_64/
 
 outdated:
 	cargo-outdated
@@ -23,14 +23,11 @@ test-rv:
 		QEMU_CPU='rv64,zca=true,zcb=true,zicond=true' \
 		cargo test --quiet --workspace --target riscv64gc-unknown-linux-gnu
 
-test-rvv: test-rvv-128 test-rvv-256 test-rvv-512 test-rvv-1024
-
-# Suffix is VLEN
-test-rvv-%:
-	CARGO_TARGET_DIR='target-rvv-$*' \
+test-rvv:
+	CARGO_TARGET_DIR='target-rvv' \
 		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUSTFLAGS='-C target-feature=+v,+zvbb' \
 		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUSTDOCFLAGS='-C target-feature=+v,+zvbb' \
-		QEMU_CPU='rv64,zca=true,zcb=true,zicond=true,zve64x=true,zvbb=true,rvv_ta_all_1s=on,rvv_ma_all_1s=on,vlen=$*' \
+		QEMU_CPU='rv64,zca=true,zcb=true,zicond=true,v=true,zvbb=true' \
 		cargo test --quiet --workspace --target riscv64gc-unknown-linux-gnu
 
 test-x86_64:
