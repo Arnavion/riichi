@@ -1,15 +1,5 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	typenum::{
-		Prod,
-		Sum,
-		U0, U1, U2, U3,
-	},
-};
-
 use crate::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 	except,
 	KouWait,
 	Number, NumberSuit, NumberTile, NumberTileClassified,
@@ -23,15 +13,15 @@ struct Meld<M> {
 	ms: [core::mem::MaybeUninit<M>; 4],
 }
 
-// TODO(rustup): Clippy incorrectly suggests using `#[derive(Clone)]` but that does not compile since `MaybeUninit<T>: Clone` requires `T: Copy`.
-#[expect(clippy::expl_impl_clone_on_copy)]
-impl<M> Clone for Meld<M> where M: Copy {
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl<M> Clone for Meld<M> where M: Copy {
 	fn clone(&self) -> Self {
 		*self
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 enum Honor {
 	/// Ton
@@ -113,7 +103,8 @@ mod honors {
 	include!("honors.generated.rs");
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 enum NumberMeld {
 	/// Ankou 111 / Pair 11
@@ -234,29 +225,55 @@ mod numbers {
 	include!("numbers.generated.rs");
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Tile37SuitedMultiSet<NT>(Tile37SuitedMultiSetInner, core::marker::PhantomData<NT>);
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub(crate) struct Tile37SuitedMultiSet<const NT: usize>(Tile37SuitedMultiSetInner);
 
 // Common implementation independent of `NT` to combat monomorphization bloat.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Copy, Debug)]
 struct Tile37SuitedMultiSetInner {
 	counts: [u32; 4],
 	totals: [u8; 4],
 }
 
-impl<NT> Tile37SuitedMultiSet<NT> {
-	pub(crate) fn new(ts: &GenericArray<Tile, NT>) -> Tile37SuitedMultiSet<NT> where NT: ArrayLength {
-		let mut inner = Tile37SuitedMultiSetInner::default();
-		for &t in ts {
-			inner.push(t);
+impl<const NT: usize> Tile37SuitedMultiSet<NT> {
+	pub(crate) fn new(ts: &[Tile; NT]) -> Tile37SuitedMultiSet<NT> {
+		fn simd_select_lt<const N: usize>(ts: core::simd::Simd<u8, N>, t: Tile) -> core::simd::Simd<u8, N> {
+			core::simd::Select::select(
+				core::simd::cmp::SimdPartialOrd::simd_lt(ts, core::simd::Simd::splat(t as u8)),
+				core::simd::Simd::splat(1),
+				core::simd::Simd::splat(0),
+			)
 		}
-		Self(inner, Default::default())
+
+		let mut inner = Tile37SuitedMultiSetInner::default();
+
+		let ts = unsafe { &*<*const [Tile; NT]>::cast::<[u8; NT]>(ts) };
+		let ts = core::simd::Simd::from_array(*ts);
+
+		let is: core::simd::Simd<u8, _> = core::simd::Simd::splat(3) - (simd_select_lt(ts, t!(1p)) + simd_select_lt(ts, t!(1s)) + simd_select_lt(ts, t!(E)));
+
+		let offsets: core::simd::Simd<u8, _> =
+			((ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1) +
+			core::simd::Simd::splat(3) -
+			(simd_select_lt(ts, t!(0m)) + simd_select_lt(ts, t!(0p)) + simd_select_lt(ts, t!(0s))) -
+			(is * core::simd::Simd::splat(10));
+		let offsets: core::simd::Simd<u32, _> = core::simd::Simd::splat(1) << core::simd::num::SimdUint::cast::<u32>(offsets * core::simd::Simd::splat(3));
+
+		for i in 0..4 {
+			let valid = core::simd::cmp::SimdPartialEq::simd_eq(is, core::simd::Simd::splat(i));
+			let i = usize::from(i);
+			inner.counts[i] = core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(valid, offsets, core::simd::Simd::splat(0_u32)));
+			inner.totals[i] = core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(valid, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8)));
+		}
+
+		Self(inner)
 	}
 
-	pub(crate) fn push(self, t: Tile) -> Tile37SuitedMultiSet<Sum<NT, U1>> where NT: core::ops::Add<U1> {
+	pub(crate) const fn push(self, t: Tile) -> Tile37SuitedMultiSet<{ NT + 1 }> {
 		let mut inner = self.0;
 		inner.push(t);
-		Tile37SuitedMultiSet(inner, Default::default())
+		Tile37SuitedMultiSet(inner)
 	}
 
 	pub(crate) const fn tenpai(&self) -> Tile37Set {
@@ -264,14 +281,14 @@ impl<NT> Tile37SuitedMultiSet<NT> {
 	}
 }
 
-impl Default for Tile37SuitedMultiSet<U0> {
+const impl Default for Tile37SuitedMultiSet<0> {
 	fn default() -> Self {
-		Self(Tile37SuitedMultiSetInner::default(), Default::default())
+		Self(Tile37SuitedMultiSetInner::default())
 	}
 }
 
 impl Tile37SuitedMultiSetInner {
-	fn push(&mut self, t: Tile) {
+	const fn push(&mut self, t: Tile) {
 		let i = 3 - (usize::from(t < t!(1p)) + usize::from(t < t!(1s)) + usize::from(t < t!(E)));
 		let offset =
 			((t as usize - t!(1m) as usize) >> 1)
@@ -289,48 +306,21 @@ impl Tile37SuitedMultiSetInner {
 
 		const fn counts_to_present_numbers(count: u32) -> u64 {
 			let present = count | (count >> 1) | (count >> 2);
-			//                00j_00i_00h_00g_00f_00e_00d_00c_00b_00a
-			//             -> 00j_000_0ih_000_0gf_00e_000_0dc_000_0ba
+			let present = present.extract_bits(0b001_001_001_001_001_001_001_001_001_001);
 			let present =
-				( present & 0b001_000_001_000_001_001_000_001_000_001) |
-				((present & 0b000_001_000_001_000_000_001_000_001_000) >> 2);
-			//             -> 000_000_jih_000_0gf_000_000_edc_000_0ba
-			let present =
-				( present & 0b000_000_011_000_011_000_000_011_000_011) |
-				((present & 0b001_000_000_000_000_001_000_000_000_000) >> 4);
-			//             -> 000_000_000_0ji_hgf_000_000_000_0ed_cba
-			let present =
-				( present & 0b000_000_000_000_011_000_000_000_000_011) |
-				((present & 0b000_000_111_000_000_000_000_111_000_000) >> 4);
-			//             -> 000_000_000_000_000_000_000_jih_g+d_cba
-			let present =
-				( present & 0b000_000_000_000_000_000_000_000_011_111) |
-				((present & 0b000_000_000_011_111_000_000_000_000_000) >> 11);
-
+				( present & 0b0000011111) |
+				((present & 0b1111100000) >> 1);
 			let present = present | (present << 1) | (present >> 1);
 			let present =
 				( present & 0b000011111) |
 				((present & 0b111110000) << 1);
-			present as u64
+			u64::from(present)
 		}
 
 		const fn counts_to_present_honors(count: u32) -> u64 {
 			let present = count | (count >> 1) | (count >> 2);
-			//                00g_00f_00e_00d_00c_00b_00a
-			//             -> 00g_000_0fe_000_0dc_000_0ba
-			let present =
-				( present & 0b001_000_001_000_001_000_001) |
-				((present & 0b000_001_000_001_000_001_000) >> 2);
-			//             -> 000_000_gfe_000_000_00d_cba
-			let present =
-				( present & 0b000_000_011_000_000_000_011) |
-				((present & 0b001_000_000_000_011_000_000) >> 4);
-			//             -> 000_000_000_000_00g_fed_cba
-			let present =
-				( present & 0b000_000_000_000_000_001_111) |
-				((present & 0b000_000_111_000_000_000_000) >> 8);
-
-			present as u64
+			let present = present.extract_bits(0b001_001_001_001_001_001_001);
+			u64::from(present)
 		}
 
 		let mut present = 0_u64;
@@ -346,16 +336,36 @@ impl Tile37SuitedMultiSetInner {
 		if needs_tile(self.totals[3]) {
 			present |= counts_to_present_honors(self.counts[3]) << 30;
 		}
-		let mut result = Tile37Set::new();
+		let mut result = Tile37Set::default();
 		result.present = present;
 		result
 	}
 }
 
-pub(crate) struct Lookup<NM>(LookupInner, core::marker::PhantomData<NM>);
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl Clone for Tile37SuitedMultiSetInner {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+#[expect(clippy::derivable_impls)] // clippy wants this to be replaced with `#[derive_const(Default)]`, but libcore does not impl `const Default for [T; N]`
+const impl Default for Tile37SuitedMultiSetInner {
+	fn default() -> Self {
+		Self {
+			counts: [0; 4],
+			totals: [0; 4],
+		}
+	}
+}
+
+#[derive(Debug)]
+#[derive_const(Clone)]
+pub(crate) struct Lookup<const NM: usize>(LookupInner);
 
 // Common implementation independent of `NM` to combat monomorphization bloat.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 struct LookupInner {
 	ji: Option<&'static (u32, Option<Honor>, Meld<Honor>)>,
 	i_sou: u8,
@@ -365,39 +375,21 @@ struct LookupInner {
 	man: &'static [(Option<NumberMeld>, Meld<NumberMeld>)],
 }
 
-impl<NM> Lookup<NM>
-where
-	NM: core::ops::Mul<U3>,
-	Prod<NM, U3>: core::ops::Add<U2>,
-{
-	pub(crate) fn new(ts: &Tile37SuitedMultiSet<Sum<Prod<NM, U3>, U2>>) -> Self {
-		Self(LookupInner::new(&ts.0), Default::default())
+impl<const NM: usize> Lookup<NM> {
+	pub(crate) fn new(ts: &Tile37SuitedMultiSet<{ NM * 3 + 2 }>) -> Self {
+		Self(LookupInner::new(&ts.0))
 	}
 }
 
-impl<NM> Clone for Lookup<NM> {
-	fn clone(&self) -> Self {
-		Self(self.0.clone(), self.1)
-	}
-}
-
-impl<NM> core::fmt::Debug for Lookup<NM> {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_tuple("Lookup")
-			.field(&self.0)
-			.finish()
-	}
-}
-
-impl<NM> Iterator for Lookup<NM> where NM: ArrayLength {
-	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandPair);
+impl<const NM: usize> Iterator for Lookup<NM> {
+	type Item = ([ScorableHandMeld; NM], ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let mut melds = GenericArray::uninit();
+		let mut melds = [const { core::mem::MaybeUninit::uninit() }; NM];
 		let pair = unsafe { self.0.next_to(&mut melds)? };
 		// SAFETY: The size of `melds` is correct based on the number of tiles in `ts`. So if `self.0.next_to()` returned `Some(_)`,
 		// we know that `melds` must have been completely filled with melds.
-		let melds = unsafe { GenericArray::assume_init(melds) };
+		let melds = unsafe { core::mem::MaybeUninit::array_assume_init(melds) };
 		Some((melds, pair))
 	}
 
@@ -547,21 +539,26 @@ impl LookupInner {
 	}
 }
 
-pub(crate) struct LookupForNewTile<NM>
+#[derive(Clone, Debug)]
+pub(crate) struct LookupForNewTile<const NM: usize>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
+	[(); (NM + 1) - 1]:,
+	[(); NM + 1]:,
+	[(); NM + 2]:,
 {
-	current: ArrayVecIntoIter<(GenericArray<ScorableHandMeld, NM>, ScorableHandFourthMeld, ScorableHandPair), Sum<NM, U2>>,
-	lookup: Lookup<Sum<NM, U1>>,
+	current: core::array::IntoIter<([ScorableHandMeld; (NM + 1) - 1], ScorableHandFourthMeld, ScorableHandPair), { NM + 2 }>,
+	lookup: Lookup<{ NM + 1 }>,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 }
 
-impl<NM> LookupForNewTile<NM>
+impl<const NM: usize> LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
+	[(); (NM + 1) - 1]:,
+	[(); NM + 1]:,
+	[(); NM + 2]:,
 {
-	pub(crate) fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub(crate) fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			current: Default::default(),
 			lookup,
@@ -571,40 +568,13 @@ where
 	}
 }
 
-impl<NM> Clone for LookupForNewTile<NM>
+impl<const NM: usize> Iterator for LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
+	[(); (NM + 1) - 1]:,
+	[(); NM + 1]:,
+	[(); NM + 2]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			current: self.current.clone(),
-			lookup: self.lookup.clone(),
-			new_tile: self.new_tile,
-			tsumo_or_ron: self.tsumo_or_ron,
-		}
-	}
-}
-
-impl<NM> core::fmt::Debug for LookupForNewTile<NM>
-where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2, Output: ArrayLength>,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("LookupForNewTile")
-			.field("current", &self.current)
-			.field("lookup", &self.lookup)
-			.field("new_tile", &self.new_tile)
-			.field("tsumo_or_ron", &self.tsumo_or_ron)
-			.finish()
-	}
-}
-
-impl<NM> Iterator for LookupForNewTile<NM>
-where
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength + core::ops::Sub<U1, Output = NM>> + core::ops::Add<U2, Output: ArrayLength>,
-	Lookup<Sum<NM, U1>>: Iterator<Item = (GenericArray<ScorableHandMeld, Sum<NM, U1>>, ScorableHandPair)>,
-{
-	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandFourthMeld, ScorableHandPair);
+	type Item = ([ScorableHandMeld; (NM + 1) - 1], ScorableHandFourthMeld, ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -619,12 +589,12 @@ where
 				//    0m   |    0m    | yes, pair is 50m
 				if pair.0 == self.new_tile || pair.0.remove_red() == self.new_tile {
 					let md = ms[ms.len() - 1];
-					let ms = unsafe { except(&ms, [ms.len() - 1].into()) };
+					let ms = unsafe { except::<_, { NM + 1 }, 1>(&ms, [ms.len() - 1]) };
 					unsafe { current.push_unchecked((ms, ScorableHandFourthMeld::tanki(md), pair)); }
 				}
 				for (i, &md) in ms.iter().enumerate() {
 					if let Some(md) = new_tile_in_meld(md, self.new_tile, self.tsumo_or_ron) {
-						let ms = unsafe { except(&ms, [i].into()) };
+						let ms = unsafe { except::<_, { NM + 1 }, 1>(&ms, [i]) };
 						unsafe { current.push_unchecked((ms, md, pair)); }
 					}
 				}
@@ -638,7 +608,7 @@ where
 	fn size_hint(&self) -> (usize, Option<usize>) {
 		let current_len = self.current.len();
 		let (lookup_lo, lookup_hi) = self.lookup.size_hint();
-		(current_len + lookup_lo, lookup_hi.map(|lookup_hi| current_len + lookup_hi * (NM::USIZE + 2)))
+		(current_len + lookup_lo, lookup_hi.map(|lookup_hi| current_len + lookup_hi * (NM + 2)))
 	}
 }
 
@@ -688,10 +658,9 @@ fn new_tile_in_meld(m: ScorableHandMeld, new_tile: Tile, tsumo_or_ron: TsumoOrRo
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
-
-	use generic_array::typenum::U4;
 
 	use crate::Tile37MultiSet;
 	use super::*;
@@ -833,14 +802,14 @@ mod tests {
 	fn to_meld() {
 		for ma in melds_last() {
 			let (t1, t2, t3, t4, new_tile, tsumo_or_ron) = fourth_meld_to_tiles(ma);
-			let ts = [t1, t2, t3, t4].into();
-			let expected = ([].into(), ma, ScorableHandPair(t!(1p)));
-			let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+			let ts = [t1, t2, t3, t4];
+			let expected = ([], ma, ScorableHandPair(t!(1p)));
+			let actual: std::vec::Vec<_> = LookupForNewTile::<0>::new(Lookup::<1>::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 			assert_eq!(actual, [expected], "{ma:?} did not meld into {expected:?}, only into {actual:?}");
 		}
 
 		// 124 -> X
-		assert!(Lookup::<U1>::new(&Tile37SuitedMultiSet::new(&t![1s, 2s, 4s, 1p, 1p].into())).next().is_none());
+		assert!(Lookup::<1>::new(&Tile37SuitedMultiSet::new(&t![1s, 2s, 4s, 1p, 1p])).next().is_none());
 	}
 
 	#[test]
@@ -860,14 +829,14 @@ mod tests {
 					continue;
 				}
 
-				let mut expected = ArrayVec::<_, U2>::new();
-				expected.push(([ma].into(), mb, ScorableHandPair(t!(1p)))).unwrap();
+				let mut expected = ArrayVec::<_, 2>::new();
+				expected.push(([ma], mb, ScorableHandPair(t!(1p)))).unwrap();
 				if let Some(mb) = mb.to_tanki() {
-					expected.push(([mb].into(), ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
+					expected.push(([mb], ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 				}
 
-				let ts = [t1, t2, t3, t4, t5, t6, t7].into();
-				let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+				let ts = [t1, t2, t3, t4, t5, t6, t7];
+				let actual: std::vec::Vec<_> = LookupForNewTile::<1>::new(Lookup::<2>::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 				assert!(
 					expected.iter().any(|expected| actual.contains(expected)),
 					"{ma:?} + {mb:?} did not meld into any of {expected:?}, only into {actual:?}",
@@ -901,20 +870,20 @@ mod tests {
 						continue;
 					}
 
-					let mut expected = ArrayVec::<_, U3>::new();
+					let mut expected = ArrayVec::<_, 3>::new();
 					{
-						let ms = { let mut ms = [ma, mb]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [ma, mb]; ms.sort_unstable(); ms };
 						expected.push((ms, mc, ScorableHandPair(t!(1p)))).unwrap();
 					}
 					if let Some(mc) = mc.to_tanki() {
-						let ms = { let mut ms = [ma, mc]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [ma, mc]; ms.sort_unstable(); ms };
 						expected.push((ms, ScorableHandFourthMeld::tanki(mb), ScorableHandPair(t!(1p)))).unwrap();
-						let ms = { let mut ms = [mb, mc]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [mb, mc]; ms.sort_unstable(); ms };
 						expected.push((ms, ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 					}
 
-					let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10].into();
-					let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+					let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10];
+					let mut actual: std::vec::Vec<_> = LookupForNewTile::<2>::new(Lookup::<3>::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 					for (ms, ..) in &mut actual { ms.sort_unstable(); }
 					assert!(
 						expected.iter().any(|expected| actual.contains(expected)),
@@ -958,22 +927,22 @@ mod tests {
 							continue;
 						}
 
-						let mut expected = ArrayVec::<_, U4>::new();
+						let mut expected = ArrayVec::<_, 4>::new();
 						{
-							let ms = { let mut ms = [ma, mb, mc]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mb, mc]; ms.sort_unstable(); ms };
 							expected.push((ms, md, ScorableHandPair(t!(1p)))).unwrap();
 						}
 						if let Some(md) = md.to_tanki() {
-							let ms = { let mut ms = [ma, mb, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mb, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::tanki(mc), ScorableHandPair(t!(1p)))).unwrap();
-							let ms = { let mut ms = [ma, mc, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mc, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::tanki(mb), ScorableHandPair(t!(1p)))).unwrap();
-							let ms = { let mut ms = [mb, mc, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [mb, mc, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 						}
 
-						let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13].into();
-						let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
+						let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13];
+						let mut actual: std::vec::Vec<_> = LookupForNewTile::<3>::new(Lookup::<4>::new(&Tile37SuitedMultiSet::new(&ts).push(new_tile)), new_tile, tsumo_or_ron).collect();
 						for (ms, ..) in &mut actual { ms.sort_unstable(); }
 						assert!(
 							expected.iter().any(|expected| actual.contains(expected)),
