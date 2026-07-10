@@ -1,87 +1,106 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	typenum::{
-		Diff,
-		Sum,
-		U0, U1,
-	},
-};
-
 use crate::{
 	Tile, Tile34Set, Tile37Set,
 };
 
 /// Similar to [`Tile37MultiSet`](crate::Tile37MultiSet) but stores tiles internally in a different layout
 /// that is conducive to decomposing into melds.
-#[derive(Debug, Eq, PartialEq)]
-pub struct Tile37SuitedMultiSet<NT>(Tile37SuitedMultiSetInner, core::marker::PhantomData<NT>);
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
+pub struct Tile37SuitedMultiSet<const NT: usize>(Tile37SuitedMultiSetInner);
 
 // Common implementation independent of `NT` to combat monomorphization bloat.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Eq, PartialEq)]
 pub(crate) struct Tile37SuitedMultiSetInner {
 	counts: [u32; 4],
 	totals: [u8; 4],
 }
 
-impl<NT> Tile37SuitedMultiSet<NT> {
-	pub fn new(ts: &GenericArray<Tile, NT>) -> Tile37SuitedMultiSet<NT> where NT: ArrayLength {
-		let mut inner = Tile37SuitedMultiSetInner::default();
-		for &t in ts {
-			inner.push(t);
+impl<const NT: usize> Tile37SuitedMultiSet<NT> {
+	pub fn new(ts: &[Tile; NT]) -> Tile37SuitedMultiSet<NT> {
+		fn simd_select_lt<const N: usize>(ts: core::simd::Simd<u8, N>, t: Tile) -> core::simd::Simd<u8, N> {
+			core::simd::Select::select(
+				core::simd::cmp::SimdPartialOrd::simd_lt(ts, core::simd::Simd::splat(t as u8)),
+				core::simd::Simd::splat(1),
+				core::simd::Simd::splat(0),
+			)
 		}
-		Self(inner, Default::default())
+
+		let mut inner = Tile37SuitedMultiSetInner::default();
+
+		let ts = unsafe { &*<*const [Tile; NT]>::cast::<[u8; NT]>(ts) };
+		let ts = core::simd::Simd::from_array(*ts);
+
+		let is: core::simd::Simd<u8, _> = core::simd::Simd::splat(3) - (simd_select_lt(ts, t!(1p)) + simd_select_lt(ts, t!(1s)) + simd_select_lt(ts, t!(E)));
+
+		let offsets: core::simd::Simd<u8, _> =
+			((ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1) +
+			core::simd::Simd::splat(3) -
+			(simd_select_lt(ts, t!(0m)) + simd_select_lt(ts, t!(0p)) + simd_select_lt(ts, t!(0s))) -
+			(is * core::simd::Simd::splat(10));
+		let offsets: core::simd::Simd<u32, _> = core::simd::Simd::splat(1) << core::simd::num::SimdUint::cast::<u32>(offsets * core::simd::Simd::splat(3));
+
+		for i in 0..4 {
+			let valid = core::simd::cmp::SimdPartialEq::simd_eq(is, core::simd::Simd::splat(i));
+			let i = usize::from(i);
+			inner.counts[i] = core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(valid, offsets, core::simd::Simd::splat(0_u32)));
+			inner.totals[i] = core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(valid, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8)));
+		}
+
+		Self(inner)
 	}
 
-	pub(crate) fn push(self, t: Tile) -> Tile37SuitedMultiSet<Sum<NT, U1>> where NT: core::ops::Add<U1> {
+	#[cfg(use_core_simd)]
+	pub(crate) const fn contains(&self, t: Tile) -> bool {
+		self.0.contains(t)
+	}
+
+	pub(crate) const fn push(self, t: Tile) -> Tile37SuitedMultiSet<{ NT + 1 }> {
 		let mut inner = self.0;
 		inner.push(t);
-		Tile37SuitedMultiSet(inner, Default::default())
+		Tile37SuitedMultiSet(inner)
 	}
 
-	pub(crate) fn remove(self, t: Tile) -> Option<Tile37SuitedMultiSet<Diff<NT, U1>>> where NT: core::ops::Sub<U1> {
+	pub(crate) const fn remove(self, t: Tile) -> Option<Tile37SuitedMultiSet<{ NT - 1 }>> {
 		let mut inner = self.0;
-		let removed = inner.remove(t);
-		removed.then_some(Tile37SuitedMultiSet(inner, Default::default()))
+		if inner.remove(t) { Some(Tile37SuitedMultiSet(inner)) } else { None }
 	}
 
-	pub(crate) unsafe fn remove_unchecked(self, t: Tile) -> Tile37SuitedMultiSet<Diff<NT, U1>> where NT: core::ops::Sub<U1> {
+	pub(crate) const unsafe fn remove_unchecked(self, t: Tile) -> Tile37SuitedMultiSet<{ NT - 1 }> {
 		let mut inner = self.0;
 		unsafe { inner.remove_unchecked(t); }
-		Tile37SuitedMultiSet(inner, Default::default())
+		Tile37SuitedMultiSet(inner)
 	}
 
 	pub(crate) fn tenpai(&self) -> Tile37Set {
 		tenpai((*self).into(), self.0.totals)
 	}
+
+	#[cfg(use_core_simd)]
+	#[expect(clippy::wrong_self_convention)]
+	pub(crate) fn to_counts(&self) -> core::simd::Simd<u8, 34> {
+		self.0.to_counts()
+	}
 }
 
-impl<NT> AsRef<Tile37SuitedMultiSetInner> for Tile37SuitedMultiSet<NT> {
+const impl<const NT: usize> AsRef<Tile37SuitedMultiSetInner> for Tile37SuitedMultiSet<NT> {
 	fn as_ref(&self) -> &Tile37SuitedMultiSetInner {
 		&self.0
 	}
 }
 
-impl<NT> Clone for Tile37SuitedMultiSet<NT> {
-	fn clone(&self) -> Self {
-		*self
-	}
-}
-
-impl<NT> Copy for Tile37SuitedMultiSet<NT> {}
-
-impl Default for Tile37SuitedMultiSet<U0> {
+const impl Default for Tile37SuitedMultiSet<0> {
 	fn default() -> Self {
-		Self(Tile37SuitedMultiSetInner::default(), Default::default())
+		Self(Tile37SuitedMultiSetInner::default())
 	}
 }
 
-impl<NT> TryFrom<Tile37SuitedMultiSetInner> for Tile37SuitedMultiSet<NT> where NT: generic_array::typenum::Unsigned {
+const impl<const NT: usize> TryFrom<Tile37SuitedMultiSetInner> for Tile37SuitedMultiSet<NT> {
 	type Error = ();
 
 	fn try_from(inner: Tile37SuitedMultiSetInner) -> Result<Self, Self::Error> {
-		if (inner.totals[0] + inner.totals[1] + inner.totals[2] + inner.totals[3]) as usize == NT::USIZE {
-			Ok(Self(inner, Default::default()))
+		if (inner.totals[0] + inner.totals[1] + inner.totals[2] + inner.totals[3]) as usize == NT {
+			Ok(Self(inner))
 		}
 		else {
 			Err(())
@@ -89,7 +108,7 @@ impl<NT> TryFrom<Tile37SuitedMultiSetInner> for Tile37SuitedMultiSet<NT> where N
 	}
 }
 
-impl<NT> IntoIterator for Tile37SuitedMultiSet<NT> {
+impl<const NT: usize> IntoIterator for Tile37SuitedMultiSet<NT> {
 	type Item = <Self::IntoIter as Iterator>::Item;
 	type IntoIter = Tile37SuitedMultiSetIntoIter;
 
@@ -99,13 +118,19 @@ impl<NT> IntoIterator for Tile37SuitedMultiSet<NT> {
 }
 
 impl Tile37SuitedMultiSetInner {
-	fn push(&mut self, t: Tile) {
+	#[cfg(use_core_simd)]
+	const fn contains(&self, t: Tile) -> bool {
+		let (i, offset) = Self::offset_of(t);
+		(self.counts[i] & 0b111 << (offset * 3)) != 0
+	}
+
+	const fn push(&mut self, t: Tile) {
 		let (i, offset) = Self::offset_of(t);
 		self.counts[i] += 0b1 << (offset * 3);
 		self.totals[i] += 1;
 	}
 
-	fn remove(&mut self, t: Tile) -> bool {
+	const fn remove(&mut self, t: Tile) -> bool {
 		let (i, offset) = Self::offset_of(t);
 		let count = self.counts[i] >> (offset * 3) & 0b111;
 		if count == 0 { return false; }
@@ -114,7 +139,7 @@ impl Tile37SuitedMultiSetInner {
 		true
 	}
 
-	pub(crate) fn remove_all(&mut self, t: Tile) -> u8 {
+	pub(crate) const fn remove_all(&mut self, t: Tile) -> u8 {
 		let (i, offset) = Self::offset_of(t);
 		let count = (self.counts[i] >> (offset * 3) & 0b111) as u8;
 		self.counts[i] &= !(0b111 << (offset * 3));
@@ -122,17 +147,13 @@ impl Tile37SuitedMultiSetInner {
 		count
 	}
 
-	unsafe fn remove_unchecked(&mut self, t: Tile) {
+	const unsafe fn remove_unchecked(&mut self, t: Tile) {
 		let (i, offset) = Self::offset_of(t);
 		self.counts[i] -= 0b1 << (offset * 3);
 		self.totals[i] -= 1;
 	}
 
-	pub(crate) fn is_empty(&self) -> bool {
-		self.totals[0] == 0 && self.totals[1] == 0 && self.totals[2] == 0 && self.totals[3] == 0
-	}
-
-	fn offset_of(t: Tile) -> (usize, usize) {
+	const fn offset_of(t: Tile) -> (usize, usize) {
 		let i = 3 - (usize::from(t < t!(1p)) + usize::from(t < t!(1s)) + usize::from(t < t!(E)));
 		let offset =
 			((t as usize - t!(1m) as usize) >> 1)
@@ -156,9 +177,56 @@ impl Tile37SuitedMultiSetInner {
 	pub(crate) fn ji(&self) -> (u32, u8) {
 		(self.counts[3], self.totals[3])
 	}
+
+	#[cfg(use_core_simd)]
+	#[expect(clippy::wrong_self_convention)]
+	fn to_counts(&self) -> core::simd::Simd<u8, 34> {
+		const SHIFTS: core::simd::Simd<u32, 34> = core::simd::Simd::from_array([
+			0, 3, 6, 9, 12, 15, 18, 21, 24,
+			0, 3, 6, 9, 12, 15, 18, 21, 24,
+			0, 3, 6, 9, 12, 15, 18, 21, 24,
+			0, 3, 6, 9, 12, 15, 18,
+		]);
+
+		let counts012 = core::simd::Simd::<_, 3>::from_slice(&self.counts);
+		let counts012 =
+			(counts012 & core::simd::Simd::splat(0b000_000_000_000_000_111_111_111_111_111)) +
+			((counts012 & core::simd::Simd::splat(0b111_111_111_111_111_000_000_000_000_000)) >> 3);
+		let counts = core::simd::simd_swizzle!(counts012.resize::<4>(self.counts[3]), [
+			0, 0, 0, 0, 0, 0, 0, 0, 0,
+			1, 1, 1, 1, 1, 1, 1, 1, 1,
+			2, 2, 2, 2, 2, 2, 2, 2, 2,
+			3, 3, 3, 3, 3, 3, 3,
+		]);
+		let counts = counts >> SHIFTS;
+		let counts = counts & core::simd::Simd::splat(0b111);
+		core::simd::num::SimdUint::cast::<u8>(counts)
+	}
+
+	#[expect(clippy::wrong_self_convention)]
+	pub(crate) const fn to_simd(&self) -> core::simd::Simd<u32, 4> {
+		core::simd::Simd::from_array(self.counts)
+	}
 }
 
-impl<NT> From<Tile37SuitedMultiSet<NT>> for Tile37SuitedMultiSetInner {
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl Clone for Tile37SuitedMultiSetInner {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+#[expect(clippy::derivable_impls)] // clippy wants this to be replaced with `#[derive_const(Default)]`, but libcore does not impl `const Default for [T; N]`
+const impl Default for Tile37SuitedMultiSetInner {
+	fn default() -> Self {
+		Self {
+			counts: [0; 4],
+			totals: [0; 4],
+		}
+	}
+}
+
+const impl<const NT: usize> From<Tile37SuitedMultiSet<NT>> for Tile37SuitedMultiSetInner {
 	fn from(outer: Tile37SuitedMultiSet<NT>) -> Self {
 		outer.0
 	}
@@ -173,10 +241,20 @@ impl IntoIterator for Tile37SuitedMultiSetInner {
 	}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Tile37SuitedMultiSetIntoIter {
 	counts: [u32; 4],
 	offset_i: u8,
+}
+
+// TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl Clone for Tile37SuitedMultiSetIntoIter {
+	fn clone(&self) -> Self {
+		Self {
+			counts: self.counts,
+			offset_i: self.offset_i,
+		}
+	}
 }
 
 impl Iterator for Tile37SuitedMultiSetIntoIter {
@@ -212,115 +290,61 @@ impl Iterator for Tile37SuitedMultiSetIntoIter {
 	}
 
 	fn size_hint(&self) -> (usize, Option<usize>) {
-		let any_non_zero = self.counts[0] | self.counts[1] | self.counts[2] | self.counts[3] != 0;
+		let any_non_zero = core::simd::cmp::SimdPartialEq::simd_ne(core::simd::Simd::from_array(self.counts), core::simd::Simd::splat(0)).any();
 		(usize::from(any_non_zero), None)
 	}
 }
 
 impl core::iter::FusedIterator for Tile37SuitedMultiSetIntoIter {}
 
-impl<NT> From<Tile37SuitedMultiSet<NT>> for Tile37Set {
+impl<const NT: usize> From<Tile37SuitedMultiSet<NT>> for Tile37Set {
 	fn from(set: Tile37SuitedMultiSet<NT>) -> Self {
-		fn to_set_numbers(count: u32) -> u32 {
-			let set = count | (count >> 1) | (count >> 2);
-			cfg_select! {
-				all(target_arch = "x86_64", target_feature = "bmi2") =>
-					unsafe { core::arch::x86_64::_pext_u32(set, 0b001_001_001_001_001_001_001_001_001_001) },
-
-				_ => {{
-					//            00j_00i_00h_00g_00f_00e_00d_00c_00b_00a
-
-					//         -> 000_0ji_000_0hg_000_0fe_000_0dc_000_0ba
-					let set =
-						( set & 0b000_001_000_001_000_001_000_001_000_001) |
-						((set & 0b001_000_001_000_001_000_001_000_001_000) >> 2);
-
-					//         -> 000_0ji_000_000_00h_gfe_000_000_00d_cba
-					let set =
-						( set & 0b000_011_000_000_000_011_000_000_000_011) |
-						((set & 0b000_000_000_011_000_000_000_011_000_000) >> 4);
-
-					//         -> 000_0ji_000_000_ji0_000_000_0hg_fed_cba
-					let set =
-						( set & 0b000_011_000_000_000_000_000_000_001_111) |
-						((set & 0b000_000_000_000_001_111_000_000_000_000) >> 8);
-
-					//         -> 000_000_000_000_000_000_00j_ihg_fed_cba
-					let set =
-						( set & 0b000_000_000_000_000_000_000_011_111_111) |
-						((set & 0b000_011_000_000_000_000_000_000_000_000) >> 16);
-
-					set
-				}},
-			}
+		const fn to_set(count: u32) -> u32 {
+			count.extract_bits(0b001_001_001_001_001_001_001_001_001_001)
 		}
 
-		fn to_set_honors(count: u32) -> u32 {
-			let set = count | (count >> 1) | (count >> 2);
-			cfg_select! {
-				all(target_arch = "x86_64", target_feature = "bmi2") =>
-					unsafe { core::arch::x86_64::_pext_u32(set, 0b001_001_001_001_001_001_001) },
+		let sets = core::simd::Simd::from_array(set.0.counts);
+		let mut sets = sets | (sets >> core::simd::Simd::splat(1)) | (sets >> core::simd::Simd::splat(2));
+		sets[0] = to_set(sets[0]);
+		sets[1] = to_set(sets[1]);
+		sets[2] = to_set(sets[2]);
+		// `sets[3]` only has seven useful bits so it can use a smaller `extract_bits` mask than `sets[0..=2]`.
+		// But when using vectorization, that ends up generating extra code just for handling `sets[3]`.
+		// Using the same `extract_bits` mask as `sets[0..=2]` allows the `extract_bits` operation to be vectorized over all `sets[..]`
+		// and ends up being a net benefit.
+		sets[3] = if cfg!(use_core_simd) { to_set(sets[3]) } else { sets[3].extract_bits(0b001_001_001_001_001_001_001) };
+		let sets = core::simd::num::SimdUint::cast::<u64>(sets);
+		let sets = sets << core::simd::Simd::from_array([0, 10, 20, 30]);
 
-				_ => {{
-					//            00g_00f_00e_00d_00c_00b_00a
-
-					//         -> 00g_000_0fe_000_0dc_000_0ba
-					let set =
-						( set & 0b001_000_001_000_001_000_001) |
-						((set & 0b000_001_000_001_000_001_000) >> 2);
-
-					//         -> 000_000_gfe_000_000_00d_cba
-					let set =
-						( set & 0b000_000_011_000_000_000_011) |
-						((set & 0b001_000_000_000_011_000_000) >> 4);
-
-					//         -> 000_000_000_000_00g_fed_cba
-					let set =
-						( set & 0b000_000_000_000_000_001_111) |
-						((set & 0b000_000_111_000_000_000_000) >> 8);
-
-					set
-				}},
-			}
-		}
-
-		let set_m = to_set_numbers(set.0.counts[0]);
-		let set_p = to_set_numbers(set.0.counts[1]);
-		let set_s = to_set_numbers(set.0.counts[2]);
-		let set_z = to_set_honors(set.0.counts[3]);
-		let present =
-			u64::from(set_m) |
-			(u64::from(set_p) << 10) |
-			(u64::from(set_s) << 20) |
-			(u64::from(set_z) << 30);
-		Self { present }
+		let mut result = Self::default();
+		result.present = core::simd::num::SimdUint::reduce_or(sets);
+		result
 	}
 }
 
 fn tenpai(set: Tile37Set, totals: [u8; 4]) -> Tile37Set {
-	fn needs_tile(total: u8) -> bool {
-		0b10110110110110_u16.unbounded_shr(total.into()) & 0b1 == 0b1
-	}
-
-	const fn expand_set(set: u64) -> u64 {
-		// Add neighbors
-		let set = set | (set << 1) | (set >> 1);
-		// Expand to hold separate red five
-		let set =
-			( set & 0b000011111) |
-			((set & 0b111110000) << 1);
-		set
-	}
+	let totals = core::simd::Simd::from_array(totals);
+	let needs_tile = core::simd::Simd::splat(0b10110110110110_u16) >> core::simd::num::SimdUint::cast::<u16>(totals);
+	let needs_tile = needs_tile & core::simd::Simd::splat(0b1);
+	let needs_tile = core::simd::cmp::SimdPartialEq::simd_ne(needs_tile, core::simd::Simd::splat(0));
 
 	let Tile34Set { present, .. } = set.into();
-	let set_m = present & 0b111111111;
-	let set_p = (present >> 9) & 0b111111111;
-	let set_s = (present >> 18) & 0b111111111;
-	let set_z = (present >> 27) & 0b1111111;
-	let present =
-		if needs_tile(totals[0]) { expand_set(set_m) } else { 0 } |
-		if needs_tile(totals[1]) { expand_set(set_p) << 10 } else { 0 } |
-		if needs_tile(totals[2]) { expand_set(set_s) << 20 } else { 0 } |
-		if needs_tile(totals[3]) { set_z << 30 } else { 0 };
-	Tile37Set { present }
+	let sets = core::simd::Simd::splat(present);
+	let sets = sets >> core::simd::Simd::from_array([0, 9, 18]);
+	let sets = sets & core::simd::Simd::splat(0b111111111);
+	let set_z = present >> 27;
+
+	// Add neighbors
+	let sets = sets | (sets << core::simd::Simd::splat(1)) | (sets >> core::simd::Simd::splat(1));
+	// Expand to hold separate red five
+	let sets =
+		(sets & core::simd::Simd::splat(0b000011111)) |
+		((sets & core::simd::Simd::splat(0b111110000)) << core::simd::Simd::splat(1));
+	let sets = sets.resize(set_z);
+	let sets = sets << core::simd::Simd::from_array([0, 10, 20, 30]);
+	let sets = core::simd::Select::select(needs_tile, sets, core::simd::Simd::splat(0));
+
+	let mut result = Tile37Set::default();
+	result.present = core::simd::num::SimdUint::reduce_or(sets);
+	result
 }

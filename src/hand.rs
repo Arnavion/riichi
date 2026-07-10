@@ -1,26 +1,14 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	sequence::Concat as _,
-	typenum::{
-		Diff,
-		Sum,
-		Unsigned,
-		U0, U1, U2, U3, U4, U5, U7, U8, U10, U11, U13, U14,
-	},
-};
-
 use crate::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 	CmpIgnoreRed,
 	HandMeldType,
 	NumberTile,
 	ScorableHand, ScorableHandChiitoi, ScorableHandFourthMeld, ScorableHandKokushiMusou, ScorableHandMeld, ScorableHandPair, ScorableHandRegular,
 	ShunLowTile, ShunLowTileAndHasFiveRed, SortingNetwork,
-	Tile,
+	Tile, TileSetIntoIter,
 	Tile27Set,
-	Tile34Set, Tile34SetIntoIter,
-	Tile37Set, Tile37SetIntoIter,
+	Tile34Set, Tile34SetElement,
+	Tile37Set, Tile37SetElement,
 	Tile37SuitedMultiSet, Tile37SuitedMultiSetIntoIter,
 	TsumoOrRon,
 	decompose::{Lookup, LookupForNewTile},
@@ -47,13 +35,12 @@ use crate::{
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Eq, PartialEq)]
-pub struct Hand<NT, NM>(
+#[derive(Copy)]
+#[derive_const(Eq, PartialEq)]
+pub struct Hand<const NT: usize, const NM: usize>(
 	pub Tile37SuitedMultiSet<NT>,
-	pub GenericArray<HandMeld, NM>,
-) where
-	NM: ArrayLength,
-;
+	pub [HandMeld; NM],
+);
 
 /// A single meld inside a [`Hand`].
 ///
@@ -72,7 +59,8 @@ pub struct Hand<NT, NM>(
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, PartialEq)]
 #[repr(C, u8, align(2))]
 pub enum HandMeld {
 	/// Closed quad formed by kan.
@@ -100,22 +88,23 @@ pub enum HandMeld {
 /// A hand containing some number of tiles and melds when it's not the player's turn.
 ///
 /// This enum is a way to hold all possible stable hand types during a game.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum HandStable {
 	/// A hand containing 1 tile and 4 melds.
-	One(Hand<U1, U4>),
+	One(Hand<1, 4>),
 
 	/// A hand containing 4 tiles and 3 melds.
-	Four(Hand<U4, U3>),
+	Four(Hand<4, 3>),
 
 	/// A hand containing 7 tiles and 2 melds.
-	Seven(Hand<U7, U2>),
+	Seven(Hand<7, 2>),
 
 	/// A hand containing 10 tiles and 1 meld.
-	Ten(Hand<U10, U1>),
+	Ten(Hand<10, 1>),
 
 	/// A hand containing 13 tiles.
-	Thirteen(Hand<U13, U0>),
+	Thirteen(Hand<13, 0>),
 }
 
 /// A hand containing some number of tiles and melds when it's the player's turn.
@@ -123,79 +112,62 @@ pub enum HandStable {
 /// to return to a [`HandStable`].
 ///
 /// This enum is a way to hold all possible tentative hand types during a game.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum HandTentative {
 	/// A hand containing 2 tiles and 4 melds.
-	Two(Hand<U2, U4>),
+	Two(Hand<2, 4>),
 
 	/// A hand containing 5 tiles and 3 melds.
-	Five(Hand<U5, U3>),
+	Five(Hand<5, 3>),
 
 	/// A hand containing 8 tiles and 2 melds.
-	Eight(Hand<U8, U2>),
+	Eight(Hand<8, 2>),
 
 	/// A hand containing 11 tiles and 1 meld.
-	Eleven(Hand<U11, U1>),
+	Eleven(Hand<11, 1>),
 
 	/// A hand containing 14 tiles.
-	Fourteen(Hand<U14, U0>),
+	Fourteen(Hand<14, 0>),
 }
 
-assert_size_of!(Hand<U1, U4>, 28);
-assert_size_of!(Hand<U2, U4>, 28);
-assert_size_of!(Hand<U4, U3>, 28);
-assert_size_of!(Hand<U5, U3>, 28);
-assert_size_of!(Hand<U7, U2>, 24);
-assert_size_of!(Hand<U8, U2>, 24);
-assert_size_of!(Hand<U10, U1>, 24);
-assert_size_of!(Hand<U11, U1>, 24);
-assert_size_of!(Hand<U13, U0>, 20);
-assert_size_of!(Hand<U14, U0>, 20);
+assert_size_of!(Hand<1, 4>, 28);
+assert_size_of!(Hand<2, 4>, 28);
+assert_size_of!(Hand<4, 3>, 28);
+assert_size_of!(Hand<5, 3>, 28);
+assert_size_of!(Hand<7, 2>, 24);
+assert_size_of!(Hand<8, 2>, 24);
+assert_size_of!(Hand<10, 1>, 24);
+assert_size_of!(Hand<11, 1>, 24);
+assert_size_of!(Hand<13, 0>, 20);
+assert_size_of!(Hand<14, 0>, 20);
 assert_size_of!(HandMeld, 2);
 
-impl<NT, NM> Hand<NT, NM>
+impl<const NT: usize, const NM: usize> Hand<NT, NM>
 where
-	NT: core::ops::Add<U1>,
-	NM: ArrayLength,
 	HandStable: From<Self>,
 {
 	/// Draw the given tile into this stable hand to form a tentative hand.
-	pub fn draw(self, new_tile: Tile) -> Hand<Sum<NT, U1>, NM> {
+	pub fn draw(self, new_tile: Tile) -> Hand<{ NT + 1 }, NM> {
 		let Self(ts, ms) = self;
 		let ts = ts.push(new_tile);
 		Hand(ts, ms)
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1, Output: core::ops::Sub<U1>>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	HandStable: From<Self>,
-{
 	/// Find a possible daiminkan (quad via kan call on a triplet held in the hand) using the given new tile.
 	///
 	/// Returns the `Hand<{ NT - 3 }, NM + 1 }>` that would result from this call, if any.
-	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<Diff<Diff<Diff<NT, U1>, U1>, U1>, Sum<NM, U1>>>
-	where
-		Diff<Diff<Diff<NT, U1>, U1>, U1>: Unsigned,
-	{
+	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<{ ((NT - 1) - 1) - 1 }, { NM + 1 }>> {
 		let Self(ts, ms) = self;
-		find_daiminkan(ts, new_tile).map(move |(ts, m_new)| Hand(ts, ms.concat([m_new].into())))
+		find_daiminkan(ts, new_tile).map(move |(ts, m_new)| Hand(ts, append(ms, m_new)))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NM: ArrayLength,
-	HandStable: From<Self>,
-{
 	/// Find all possible minkous (triplet via pon call) using the given new tile.
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
 	pub fn find_minkous(self, new_tile: Tile) -> Minkous<NT, NM>
 	where
-		NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+		[(); (NT - 1) - 1]:,
 	{
 		Minkous::new(self, new_tile)
 	}
@@ -205,47 +177,33 @@ where
 	/// Returns an `Iterator` of all possible hands that would result from this call.
 	pub fn find_minjuns(self, new_tile: NumberTile) -> Minjuns<NT, NM>
 	where
-		NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+		[(); (NT - 1) - 1]:,
 	{
 		Minjuns::new(self, new_tile)
 	}
 }
 
-impl<NT, NM> Hand<NT, NM>
+impl<const NT: usize, const NM: usize> Hand<NT, NM>
 where
-	NT: core::ops::Sub<U1>,
-	NM: ArrayLength,
 	HandTentative: From<Hand<NT, NM>>,
 {
 	/// Discard the given tile from this hand.
 	///
 	/// Returns the `Hand<{ NT - 1 }, NM>` resulting from the discard of that tile.
 	/// If the given tile is not present in this hand, then this function returns `None`.
-	pub fn discard(self, tile: Tile) -> Option<Hand<Diff<NT, U1>, NM>> where NT: core::ops::Sub<U1> {
+	pub fn discard(self, tile: Tile) -> Option<Hand<{ NT - 1 }, NM>> {
 		let Self(ts, ms) = self;
 		let ts = ts.remove(tile)?;
 		Some(Hand(ts, ms))
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NM: ArrayLength,
-	HandTentative: From<Self>,
-{
 	/// Find all possible ankans (quad via kan call on a quad held in the hand).
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
 	pub fn find_ankans(self) -> Ankans<NT, NM> {
 		Ankans::new(self)
 	}
-}
 
-impl<NT, NM> Hand<NT, NM>
-where
-	NM: ArrayLength,
-	HandTentative: From<Self>,
-{
 	/// Find all possible shouminkans (quad via kan call on a minkou formed previously).
 	///
 	/// Returns an `Iterator` of all possible hands that would result from this call.
@@ -254,25 +212,15 @@ where
 	}
 }
 
-impl<NT, NM> Clone for Hand<NT, NM>
-where
-	NM: ArrayLength,
-	GenericArray<HandMeld, NM>: Copy,
-{
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl<const NT: usize, const NM: usize> Clone for Hand<NT, NM> {
 	fn clone(&self) -> Self {
 		*self
 	}
 }
 
-impl<NT, NM> Copy for Hand<NT, NM>
+impl<const NT: usize, const NM: usize> core::fmt::Debug for Hand<NT, NM>
 where
-	NM: ArrayLength,
-	GenericArray<HandMeld, NM>: Copy,
-{}
-
-impl<NT, NM> core::fmt::Debug for Hand<NT, NM>
-where
-	NM: ArrayLength,
 	Hand<NT, NM>: core::fmt::Display,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -280,10 +228,7 @@ where
 	}
 }
 
-impl<NT, NM> core::fmt::Display for Hand<NT, NM>
-where
-	NM: ArrayLength,
-{
+impl<const NT: usize, const NM: usize> core::fmt::Display for Hand<NT, NM> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let Self(ts, ms) = self;
 
@@ -297,7 +242,6 @@ where
 				for _ in 0..count.get() {
 					write!(f, " {t}")?;
 				}
-				write!(f, " {t}")?;
 			}
 			for m in ms {
 				write!(f, " {m}")?;
@@ -313,7 +257,7 @@ where
 	}
 }
 
-impl Hand<U1, U4> {
+impl Hand<1, 4> {
 	/// Add the given drawn / called tile to this hand and convert it into a [`ScorableHand`] if one exists.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -328,7 +272,7 @@ impl Hand<U1, U4> {
 		let (t1, _) = unsafe { t1.unwrap_unchecked() };
 
 		let pair = ScorableHandPair::new(t1, new_tile)?;
-		let [ma, mb, mc, md] = <[HandMeld; _]>::from(ms).map(Into::into);
+		let [ma, mb, mc, md] = ms.map(Into::into);
 		Some(ScorableHand::Regular(ScorableHandRegular::new(ma, mb, mc, ScorableHandFourthMeld::tanki(md), pair)))
 	}
 
@@ -355,7 +299,7 @@ impl Hand<U1, U4> {
 
 macro_rules! hand_to_scorable_hands {
 	($(
-		Hand<$nt:ty, $nm:ty>::fn to_scorable_hands() -> #[size_of = $size:literal] struct $iter:ident { [$($m_existing:ident),*] + [$($m_new:ident),*] },
+		Hand<$nt:literal, $nm:literal>::fn to_scorable_hands() -> #[size_of = $size:literal] struct $iter:ident { [$($m_existing:ident),*] + [$($m_new:ident),*] },
 	)*) => {
 		$(
 			impl Hand<$nt, $nm> {
@@ -384,14 +328,14 @@ macro_rules! hand_to_scorable_hands {
 					let Self(ts, ms) = self;
 					let lookup = Lookup::new(&ts.push(new_tile));
 					let lookup = LookupForNewTile::new(lookup, new_tile, tsumo_or_ron);
-					let [$($m_existing),*] = <[HandMeld; _]>::from(ms).map(Into::into);
+					let [$($m_existing),*] = ms.map(Into::into);
 					$iter { lookup, $($m_existing),* }
 				}
 			}
 
 			#[derive(Clone, Debug)]
 			pub struct $iter {
-				lookup: LookupForNewTile<<<$nt as core::ops::Sub<U4>>::Output as core::ops::Div<U3>>::Output>,
+				lookup: LookupForNewTile<{ ($nt - 4) / 3 }>,
 				$($m_existing : ScorableHandMeld ,)*
 			}
 
@@ -401,8 +345,7 @@ macro_rules! hand_to_scorable_hands {
 				type Item = ScorableHand;
 
 				fn next(&mut self) -> Option<Self::Item> {
-					let (ms, md, pair) = self.lookup.next()?;
-					let [$($m_new),*] = ms.into();
+					let ([$($m_new),*], md, pair) = self.lookup.next()?;
 					Some(ScorableHand::Regular(ScorableHandRegular::new($(self. $m_existing ,)* $($m_new ,)* md, pair)))
 				}
 
@@ -417,14 +360,14 @@ macro_rules! hand_to_scorable_hands {
 }
 
 hand_to_scorable_hands! {
-	Hand<U4, U3>::fn to_scorable_hands() -> #[size_of = 112] struct Hand4ScorableHands { [ma, mb, mc] + [] },
-	Hand<U7, U2>::fn to_scorable_hands() -> #[size_of = 120] struct Hand7ScorableHands { [ma, mb] + [mc] },
-	Hand<U10, U1>::fn to_scorable_hands() -> #[size_of = 144] struct Hand10ScorableHands { [ma] + [mb, mc] },
+	Hand<4, 3>::fn to_scorable_hands() -> #[size_of = 112] struct Hand4ScorableHands { [ma, mb, mc] + [] },
+	Hand<7, 2>::fn to_scorable_hands() -> #[size_of = 120] struct Hand7ScorableHands { [ma, mb] + [mc] },
+	Hand<10, 1>::fn to_scorable_hands() -> #[size_of = 144] struct Hand10ScorableHands { [ma] + [mb, mc] },
 }
 
 macro_rules! hand_tenpai {
 	($(
-		Hand<$nt:ty, $nm:ty>::fn tenpai() -> struct $iter:ident,
+		Hand<$nt:literal, $nm:literal>::fn tenpai() -> struct $iter:ident,
 	)*) => {
 		$(
 			impl Hand<$nt, $nm> {
@@ -452,7 +395,7 @@ macro_rules! hand_tenpai {
 
 			#[derive(Clone, Debug)]
 			pub struct $iter {
-				tiles: Tile37SetIntoIter,
+				tiles: TileSetIntoIter<Tile37SetElement>,
 				ts: Tile37SuitedMultiSet<$nt>,
 			}
 
@@ -460,7 +403,7 @@ macro_rules! hand_tenpai {
 
 			impl $iter {
 				fn next_inner(&mut self, new_tile: Tile) -> bool {
-					Lookup::<<<$nt as core::ops::Sub<U1>>::Output as core::ops::Div<U3>>::Output>::new(&self.ts.push(new_tile)).next().is_some()
+					Lookup::<{ ($nt - 1) / 3 }>::new(&self.ts.push(new_tile)).next().is_some()
 				}
 			}
 
@@ -499,12 +442,12 @@ macro_rules! hand_tenpai {
 }
 
 hand_tenpai! {
-	Hand<U4, U3>::fn tenpai() -> struct Hand4Tenpai,
-	Hand<U7, U2>::fn tenpai() -> struct Hand7Tenpai,
-	Hand<U10, U1>::fn tenpai() -> struct Hand10Tenpai,
+	Hand<4, 3>::fn tenpai() -> struct Hand4Tenpai,
+	Hand<7, 2>::fn tenpai() -> struct Hand7Tenpai,
+	Hand<10, 1>::fn tenpai() -> struct Hand10Tenpai,
 }
 
-impl Hand<U13, U0> {
+impl Hand<13, 0> {
 	/// Add the given drawn / called tile to this hand and convert it into an `Iterator` of [`ScorableHand`]s.
 	///
 	/// Note that a `ScorableHand` is defined as a hand that has a winning shape,
@@ -527,8 +470,7 @@ impl Hand<U13, U0> {
 	///
 	/// One of the first two is guaranteed to be yielded, and the third is guaranteed to be yielded.
 	pub fn to_scorable_hands(self, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Hand13ScorableHands {
-		let Self(ts, ms) = self;
-		let [] = ms.into();
+		let Self(ts, []) = self;
 		let lookup = Lookup::new(&ts.push(new_tile));
 		let lookup = LookupForNewTile::new(lookup, new_tile, tsumo_or_ron);
 
@@ -545,9 +487,8 @@ impl Hand<U13, U0> {
 					pairs[..i].write_copy_of_slice(&ps[..i]);
 					pairs[i].write(p7);
 					pairs[i + 1..].write_copy_of_slice(&ps[i..]);
-					// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
 					// SAFETY: Inserting an element into a `[; 6]` initializes all elements of the resulting `[; 7]`.
-					let pairs = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<ScorableHandPair>; 7], [ScorableHandPair; 7]>(pairs) };
+					let pairs = unsafe { core::mem::MaybeUninit::array_assume_init(pairs) };
 					Some(ScorableHand::Chiitoi(ScorableHandChiitoi(pairs)))
 				}
 				else {
@@ -618,7 +559,7 @@ impl Hand<U13, U0> {
 
 #[derive(Clone, Debug)]
 pub struct Hand13ScorableHands {
-	lookup: LookupForNewTile<U3>,
+	lookup: LookupForNewTile<3>,
 	kokushi_musou: Option<ScorableHand>,
 	chiitoi: Option<ScorableHand>,
 }
@@ -637,8 +578,7 @@ impl Iterator for Hand13ScorableHands {
 			return Some(h);
 		}
 
-		let (ms, md, pair) = self.lookup.next()?;
-		let [ma, mb, mc] = ms.into();
+		let ([ma, mb, mc], md, pair) = self.lookup.next()?;
 		Some(ScorableHand::Regular(ScorableHandRegular::new(ma, mb, mc, md, pair)))
 	}
 
@@ -653,10 +593,10 @@ impl core::iter::FusedIterator for Hand13ScorableHands {}
 
 #[derive(Clone, Debug)]
 pub struct Hand13Tenpai {
-	tiles: Tile37SetIntoIter,
+	tiles: TileSetIntoIter<Tile37SetElement>,
 	kokushi_musou: ToKokushiMusou,
 	chiitoi: Option<Tile>,
-	ts: Tile37SuitedMultiSet<U13>,
+	ts: Tile37SuitedMultiSet<13>,
 }
 
 assert_size_of!(Hand13Tenpai, 32);
@@ -671,7 +611,7 @@ impl Hand13Tenpai {
 			return true;
 		}
 
-		if Lookup::<U4>::new(&self.ts.push(new_tile)).next().is_some() {
+		if Lookup::<4>::new(&self.ts.push(new_tile)).next().is_some() {
 			return true;
 		}
 
@@ -710,7 +650,7 @@ impl DoubleEndedIterator for Hand13Tenpai {
 
 impl core::iter::FusedIterator for Hand13Tenpai {}
 
-impl Hand<U14, U0> {
+impl Hand<14, 0> {
 	/// Convert this hand into an `Iterator` of [`ScorableHand`]s by considering each tile as a new tile.
 	///
 	/// This is used for rulesets where tenhou can be won by considering any tile of the starting hand as the new tile.
@@ -735,16 +675,14 @@ impl Hand<U14, U0> {
 	///
 	/// One of the first two is guaranteed to be yielded, and the third is guaranteed to be yielded.
 	pub fn to_scorable_hands(self) -> impl Iterator<Item = ScorableHand> {
-		let Self(ts, ms) = self;
-		let [] = ms.into();
+		let Self(ts, []) = self;
 		let lookup = Lookup::new(&ts);
 
 		ToKokushiMusou::tenhou(&ts).into_iter()
 			.chain(tenhou_to_chiitoi(&ts))
-			.chain(ts.into_iter().flat_map(move |(new_tile, _)| LookupForNewTile::new(lookup.clone(), new_tile, TsumoOrRon::Tsumo).map(|(ms, md, pair)| {
-				let [ma, mb, mc] = ms.into();
+			.chain(ts.into_iter().flat_map(move |(new_tile, _)| LookupForNewTile::<3>::new(lookup.clone(), new_tile, TsumoOrRon::Tsumo).map(|([ma, mb, mc], md, pair)|
 				ScorableHand::Regular(ScorableHandRegular::new(ma, mb, mc, md, pair))
-			})))
+			)))
 	}
 }
 
@@ -752,7 +690,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Ankan`](Self::Ankan) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`, `None` otherwise.
-	pub fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let t = Tile::kan_representative(t1, t2, t3, t4)?;
 		Some(Self::Ankan(t))
 	}
@@ -762,7 +700,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// Requires `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`.
-	pub unsafe fn ankan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
+	pub const unsafe fn ankan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
 		let t = unsafe { Tile::kan_representative_unchecked(t1, t2, t3, t4) };
 		Self::Ankan(t)
 	}
@@ -770,7 +708,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minkan`](Self::Minkan) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`, `None` otherwise.
-	pub fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let t = Tile::kan_representative(t1, t2, t3, t4)?;
 		Some(Self::Minkan(t))
 	}
@@ -780,7 +718,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// Requires `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`.
-	pub unsafe fn minkan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
+	pub const unsafe fn minkan_unchecked(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Self {
 		let t = unsafe { Tile::kan_representative_unchecked(t1, t2, t3, t4) };
 		Self::Minkan(t)
 	}
@@ -788,7 +726,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minkou`](Self::Minkou) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2].eq_ignore_red(&[t2, t3])`, `None` otherwise.
-	pub fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
+	pub const fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
 		let t = Tile::kou_representative(t1, t2, t3)?;
 		Some(Self::Minkou(t))
 	}
@@ -798,7 +736,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// Requires `[t1, t2].eq_ignore_red(&[t2, t3])`.
-	pub unsafe fn minkou_unchecked(t1: Tile, t2: Tile, t3: Tile) -> Self {
+	pub const unsafe fn minkou_unchecked(t1: Tile, t2: Tile, t3: Tile) -> Self {
 		let t = unsafe { Tile::kou_representative_unchecked(t1, t2, t3) };
 		Self::Minkou(t)
 	}
@@ -806,7 +744,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minjun`](Self::Minjun) using the given tiles.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::Minjun(t))
 	}
@@ -816,7 +754,7 @@ impl HandMeld {
 	/// # Safety
 	///
 	/// See [`ShunLowTileAndHasFiveRed::new_unchecked`].
-	pub unsafe fn minjun_unchecked(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
+	pub const unsafe fn minjun_unchecked(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Self {
 		let t = unsafe { ShunLowTileAndHasFiveRed::new_unchecked(t1, t2, t3) };
 		Self::Minjun(t)
 	}
@@ -838,7 +776,7 @@ impl HandMeld {
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
 	pub fn parse_until(s: &[u8], end: Option<u8>) -> Result<(Self, &[u8]), ()> {
-		let (ts, ty, s) = Tile::parse_run_until::<U4>(s, end)?;
+		let (ts, ty, s) = Tile::parse_run_until::<4>(s, end)?;
 		let ty = ty.ok_or(())?;
 		Ok((match ts[..] {
 			[t1, t2, t3, t4] => {
@@ -1066,7 +1004,7 @@ impl core::str::FromStr for HandStable {
 	type Err = ();
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let (ts, ts_type, s) = Tile::parse_run_until::<U13>(s.as_ref(), Some(b' '))?;
+		let (ts, ts_type, s) = Tile::parse_run_until::<13>(s.as_ref(), Some(b' '))?;
 		if ts_type.is_some() {
 			return Err(());
 		}
@@ -1077,16 +1015,16 @@ impl core::str::FromStr for HandStable {
 					return Err(());
 				}
 				Hand(
-					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13].into()),
-					[].into(),
+					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13]),
+					[],
 				).into()
 			},
 
 			[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10] => {
 				let (m1, _) = HandMeld::parse_until(s, None)?;
 				Hand(
-					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10].into()),
-					[m1].into(),
+					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4, t5, t6, t7, t8, t9, t10]),
+					[m1],
 				).into()
 			},
 
@@ -1094,8 +1032,8 @@ impl core::str::FromStr for HandStable {
 				let (m1, s) = HandMeld::parse_until(s, Some(b' '))?;
 				let (m2, _) = HandMeld::parse_until(s, None)?;
 				Hand(
-					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4, t5, t6, t7].into()),
-					[m1, m2].into(),
+					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4, t5, t6, t7]),
+					[m1, m2],
 				).into()
 			},
 
@@ -1104,8 +1042,8 @@ impl core::str::FromStr for HandStable {
 				let (m2, s) = HandMeld::parse_until(s, Some(b' '))?;
 				let (m3, _) = HandMeld::parse_until(s, None)?;
 				Hand(
-					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4].into()),
-					[m1, m2, m3].into(),
+					Tile37SuitedMultiSet::new(&[t1, t2, t3, t4]),
+					[m1, m2, m3],
 				).into()
 			},
 
@@ -1115,8 +1053,8 @@ impl core::str::FromStr for HandStable {
 				let (m3, s) = HandMeld::parse_until(s, Some(b' '))?;
 				let (m4, _) = HandMeld::parse_until(s, None)?;
 				Hand(
-					Tile37SuitedMultiSet::new(&[t1].into()),
-					[m1, m2, m3, m4].into(),
+					Tile37SuitedMultiSet::new(&[t1]),
+					[m1, m2, m3, m4],
 				).into()
 			},
 
@@ -1126,7 +1064,7 @@ impl core::str::FromStr for HandStable {
 }
 
 impl HandTentative {
-	/// Discard the given tile from this hand.
+	/// Discard the tile at the given index from this hand.
 	///
 	/// Returns the hand resulting from the discard of that tile.
 	/// If the given tile is not present in this hand, then this function returns `None`.
@@ -1180,9 +1118,9 @@ impl core::fmt::Display for HandTentative {
 }
 
 macro_rules! hand_enum_from {
-	($($nt:ty, $nm:ty => $ty:tt :: $variant:ident ,)*) => {
+	($($nt:expr, $nm:expr => $ty:tt :: $variant:ident ,)*) => {
 		$(
-			impl From<Hand<$nt, $nm>> for $ty {
+			const impl From<Hand<$nt, $nm>> for $ty {
 				fn from(h: Hand<$nt, $nm>) -> Self {
 					Self::$variant(h)
 				}
@@ -1192,31 +1130,27 @@ macro_rules! hand_enum_from {
 }
 
 hand_enum_from! {
-	U1, U4 => HandStable::One,
-	U2, U4 => HandTentative::Two,
-	U4, U3 => HandStable::Four,
-	U5, U3 => HandTentative::Five,
-	U7, U2 => HandStable::Seven,
-	U8, U2 => HandTentative::Eight,
-	U10, U1 => HandStable::Ten,
-	U11, U1 => HandTentative::Eleven,
-	U13, U0 => HandStable::Thirteen,
-	U14, U0 => HandTentative::Fourteen,
+	1, 4 => HandStable::One,
+	2, 4 => HandTentative::Two,
+	4, 3 => HandStable::Four,
+	5, 3 => HandTentative::Five,
+	7, 2 => HandStable::Seven,
+	8, 2 => HandTentative::Eight,
+	10, 1 => HandStable::Ten,
+	11, 1 => HandTentative::Eleven,
+	13, 0 => HandStable::Thirteen,
+	14, 0 => HandTentative::Fourteen,
 }
 
 /// [`Iterator`] of [`Hand<{ NT - 4 }, { NM + 1 }>`](Hand) values formed by creating an ankan in the given hand.
-pub struct Ankans<NT, NM>
-where
-	NM: ArrayLength,
-{
+#[derive(Debug)]
+#[derive_const(Clone)]
+pub struct Ankans<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
-	tiles: Tile34SetIntoIter,
+	tiles: TileSetIntoIter<Tile34SetElement>,
 }
 
-impl<NT, NM> Ankans<NT, NM>
-where
-	NM: ArrayLength,
-{
+impl<const NT: usize, const NM: usize> Ankans<NT, NM> {
 	fn new(hand: Hand<NT, NM>) -> Self {
 		let tiles = Tile34Set::from(Tile37Set::from(hand.0));
 		Self {
@@ -1226,13 +1160,12 @@ where
 	}
 }
 
-impl<NT, NM> Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> Ankans<NT, NM>
 where
-	NT: core::ops::Sub<U4, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {
-	fn next_inner(&mut self, t_kan: Tile) -> Option<Hand<Diff<NT, U4>, Sum<NM, U1>>> {
+	fn next_inner(&mut self, t_kan: Tile) -> Option<Hand<{ NT - 4 }, { NM + 1 }>> {
 		// Note: `ts` and `ms` are copies of `self.hand`, because we want to yield new hands, not mutate `self.hand`.
 		let Hand(ts, ms) = self.hand;
 
@@ -1252,42 +1185,16 @@ where
 
 		let m = unsafe { HandMeld::ankan_unchecked(t_kan, t_kan, t_kan, t_red) };
 
-		Some(Hand(ts, ms.concat([m].into())))
+		Some(Hand(ts, append(ms, m)))
 	}
 }
 
-impl<NT, NM> Clone for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Ankans<NT, NM>
 where
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			tiles: self.tiles.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Ankans<NT, NM>
-where
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Ankans")
-			.field("hand", &self.hand)
-			.field("tiles", &self.tiles)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Ankans<NT, NM>
-where
-	NT: core::ops::Sub<U4, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = Hand<Diff<NT, U4>, Sum<NM, U1>>;
+	type Item = Hand<{ NT - 4 }, { NM + 1 }>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1304,11 +1211,10 @@ where
 	}
 }
 
-impl<NT, NM> DoubleEndedIterator for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Ankans<NT, NM>
 where
-	NT: core::ops::Sub<U4, Output: ArrayLength>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {
 	fn next_back(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1320,20 +1226,21 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Ankans<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Ankans<NT, NM>
 where
-	NM: ArrayLength,
-	Self: Iterator,
+	[(); NT - 4]:,
+	[(); NM + 1]:,
 {}
 
 /// [`Iterator`] of [`HandStable`] values formed by creating an ankan in the given hand.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 pub enum HandAnkans {
 	Two,
-	Five(Ankans<U5, U3>),
-	Eight(Ankans<U8, U2>),
-	Eleven(Ankans<U11, U1>),
-	Fourteen(Ankans<U14, U0>),
+	Five(Ankans<5, 3>),
+	Eight(Ankans<8, 2>),
+	Eleven(Ankans<11, 1>),
+	Fourteen(Ankans<14, 0>),
 }
 
 impl Iterator for HandAnkans {
@@ -1374,13 +1281,10 @@ impl DoubleEndedIterator for HandAnkans {
 
 impl core::iter::FusedIterator for HandAnkans {}
 
-fn find_daiminkan<NT>(
-	ts: Tile37SuitedMultiSet<NT>,
+fn find_daiminkan<const N: usize>(
+	ts: Tile37SuitedMultiSet<N>,
 	new_tile: Tile,
-) -> Option<(Tile37SuitedMultiSet<Diff<Diff<Diff<NT, U1>, U1>, U1>>, HandMeld)>
-where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1, Output: core::ops::Sub<U1, Output: Unsigned>>>,
-{
+) -> Option<(Tile37SuitedMultiSet<{ ((N - 1) - 1) - 1 }>, HandMeld)> {
 	let new_tile = new_tile.remove_red();
 
 	let mut ts = Tile37SuitedMultiSetInner::from(ts);
@@ -1403,57 +1307,25 @@ where
 }
 
 /// [`Iterator`] of [`Hand<{ NT - 1 }, NM>`](Hand) values formed by creating a shouminkan in the given hand.
-pub struct Shouminkans<NT, NM>
-where
-	NM: ArrayLength,
-{
+#[derive_const(Clone)]
+#[derive(Debug)]
+pub struct Shouminkans<const NT: usize, const NM: usize> {
 	hand: Hand<NT, NM>,
 	ts: Tile37SuitedMultiSetIntoIter,
 }
 
-impl<NT, NM> Shouminkans<NT, NM>
-where
-	NM: ArrayLength,
-{
+impl<const NT: usize, const NM: usize> Shouminkans<NT, NM> {
 	fn new(hand: Hand<NT, NM>) -> Self {
 		let ts = hand.0.into_iter();
 		Self { hand, ts }
 	}
 }
 
-impl<NT, NM> Clone for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Shouminkans<NT, NM>
 where
-	NM: ArrayLength,
-	Hand<NT, NM>: Clone,
-	Tile37SuitedMultiSetIntoIter: Clone,
+	[(); NT - 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			hand: self.hand.clone(),
-			ts: self.ts.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Shouminkans<NT, NM>
-where
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Shouminkans")
-			.field("hand", &self.hand)
-			.field("ts", &self.ts)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Shouminkans<NT, NM>
-where
-	NT: core::ops::Sub<U1>,
-	NM: ArrayLength,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = Hand<Diff<NT, U1>, NM>;
+	type Item = Hand<{ NT - 1 }, NM>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1480,19 +1352,19 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Shouminkans<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Shouminkans<NT, NM>
 where
-	NM: ArrayLength,
-	Self: Iterator,
+	[(); NT - 1]:,
 {}
 
 /// [`Iterator`] of [`HandStable`] values formed by creating an shouminkan in the given hand.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 pub enum HandShouminkans {
-	Two(Shouminkans<U2, U4>),
-	Five(Shouminkans<U5, U3>),
-	Eight(Shouminkans<U8, U2>),
-	Eleven(Shouminkans<U11, U1>),
+	Two(Shouminkans<2, 4>),
+	Five(Shouminkans<5, 3>),
+	Eight(Shouminkans<8, 2>),
+	Eleven(Shouminkans<11, 1>),
 	Fourteen,
 }
 
@@ -1525,21 +1397,20 @@ impl core::iter::FusedIterator for HandShouminkans {}
 /// [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`](Hand) values formed by creating a minkou in the given hand using the given new tile.
 /// Along with the `Hand`, the iterator element contains a set of tiles in the resulting hand that are allowed to be discarded.
 /// Tiles that are not present in this list are not allowed to be discarded due to kuikae-nashi.
-pub struct Minkous<NT, NM>
+#[derive(Clone, Debug)]
+pub struct Minkous<const NT: usize, const NM: usize>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
+	[(); (NT - 1) - 1]:,
 {
-	ms: GenericArray<HandMeld, NM>,
+	ms: [HandMeld; NM],
 	new_tile: Tile,
-	t_ts1: Option<(Tile, Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>)>,
-	t_ts2: Option<(Tile, Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>)>,
+	t_ts1: Option<(Tile, Tile37SuitedMultiSet<{ (NT - 1) - 1 }>)>,
+	t_ts2: Option<(Tile, Tile37SuitedMultiSet<{ (NT - 1) - 1 }>)>,
 }
 
-impl<NT, NM> Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> Minkous<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
+	[(); (NT - 1) - 1]:,
 {
 	fn new(Hand(ts, ms): Hand<NT, NM>, new_tile: Tile) -> Self {
 		let t1 = new_tile.remove_red();
@@ -1567,59 +1438,26 @@ where
 	}
 }
 
-impl<NT, NM> Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> Minkous<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
 {
-	fn next_inner(&mut self, t: Tile, ts: Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>) -> Option<(Hand<Diff<Diff<NT, U1>, U1>, Sum<NM, U1>>, Tile37Set)> {
+	fn next_inner(&mut self, t: Tile, ts: Tile37SuitedMultiSet<{ (NT - 1) - 1 }>) -> Option<(Hand<{ (NT - 1) - 1 }, { NM + 1 }>, Tile37Set)> {
 		let allowed_discards: Tile37Set =
 			ts.into_iter()
 			.filter_map(|(t, _)| t.ne_ignore_red(&self.new_tile).then_some(t))
 			.collect();
-		(!allowed_discards.is_empty()).then(|| (Hand(ts, self.ms.concat([HandMeld::Minkou(t)].into())), allowed_discards))
+		(!allowed_discards.is_empty()).then(|| (Hand(ts, append(self.ms, HandMeld::Minkou(t))), allowed_discards))
 	}
 }
 
-impl<NT, NM> Clone for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Minkous<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
-	GenericArray<HandMeld, NM>: Clone,
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			ms: self.ms.clone(),
-			new_tile: self.new_tile,
-			t_ts1: self.t_ts1,
-			t_ts2: self.t_ts2,
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Minkous<NT, NM>
-where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1, Output: core::fmt::Debug>>,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Minkous")
-			.field("ms", &self.ms)
-			.field("new_tile", &self.new_tile)
-			.field("t_ts1", &self.t_ts1)
-			.field("t_ts2", &self.t_ts2)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Minkous<NT, NM>
-where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = (Hand<Diff<Diff<NT, U1>, U1>, Sum<NM, U1>>, Tile37Set);
+	type Item = (Hand<{ (NT - 1) - 1 }, { NM + 1 }>, Tile37Set);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1636,11 +1474,10 @@ where
 	}
 }
 
-impl<NT, NM> DoubleEndedIterator for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minkous<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
 {
 	fn next_back(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1652,10 +1489,9 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Minkous<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minkous<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
+	[(); (NT - 1) - 1]:,
 	Self: Iterator,
 {}
 
@@ -1665,10 +1501,10 @@ where
 #[derive(Clone, Debug)]
 pub enum HandMinkous {
 	One,
-	Four(Minkous<U4, U3>),
-	Seven(Minkous<U7, U2>),
-	Ten(Minkous<U10, U1>),
-	Thirteen(Minkous<U13, U0>),
+	Four(Minkous<4, 3>),
+	Seven(Minkous<7, 2>),
+	Ten(Minkous<10, 1>),
+	Thirteen(Minkous<13, 0>),
 }
 
 impl Iterator for HandMinkous {
@@ -1712,68 +1548,107 @@ impl core::iter::FusedIterator for HandMinkous {}
 /// [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`](Hand) values formed by creating a minjun in the given hand using the given new tile.
 /// Along with the `Hand`, the iterator element contains a set of tiles in the resulting hand that are allowed to be discarded.
 /// Tiles that are not present in this list are not allowed to be discarded due to kuikae-nashi.
-pub struct Minjuns<NT, NM>
+#[derive(Clone, Debug)]
+pub struct Minjuns<const NT: usize, const NM: usize>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
+	[(); (NT - 1) - 1]:,
 {
-	ms: GenericArray<HandMeld, NM>,
+	ms: [HandMeld; NM],
 	new_tile: NumberTile,
-	inner: ArrayVecIntoIter<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>), U5>,
+	inner: core::array::IntoIter<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<{ (NT - 1) - 1 }>), 5>,
 }
 
-impl<NT, NM> Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> Minjuns<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
+	[(); (NT - 1) - 1]:,
 {
 	fn new(Hand(ts, ms): Hand<NT, NM>, new_tile: NumberTile) -> Self {
-		fn new_inner(new_tile: NumberTile) -> [Option<NumberTile>; 8] {
-			let tm1 = new_tile.previous_in_sequence();
-			let tm1_red = if let Some(tm1) = tm1 && Tile27Set::FIVES.contains(tm1) { Some(unsafe { core::mem::transmute::<u8, NumberTile>(tm1 as u8 | 0b1) }) } else { None };
-			let tm2 = tm1.and_then(NumberTile::previous_in_sequence);
-			let tm2_red = if let Some(tm2) = tm2 && Tile27Set::FIVES.contains(tm2) { Some(unsafe { core::mem::transmute::<u8, NumberTile>(tm2 as u8 | 0b1) }) } else { None };
-			let t1 = new_tile.next_in_sequence();
-			let t1_red = if let Some(t1) = t1 && Tile27Set::FIVES.contains(t1) { Some(unsafe { core::mem::transmute::<u8, NumberTile>(t1 as u8 | 0b1) }) } else { None };
-			let t2 = t1.and_then(NumberTile::next_in_sequence);
-			let t2_red = if let Some(t2) = t2 && Tile27Set::FIVES.contains(t2) { Some(unsafe { core::mem::transmute::<u8, NumberTile>(t2 as u8 | 0b1) }) } else { None };
-			[tm2, tm2_red, tm1, tm1_red, t1, t1_red, t2, t2_red]
+		const INVALID: u8 = tn!(9s) as u8 + 1;
+
+		fn new_inner(new_tile: NumberTile) -> [u8; 8] {
+			const HAS_PREVIOUS_TWO: Tile27Set = t27set! {
+				3m, 4m, 5m, 6m, 7m, 8m, 9m,
+				3p, 4p, 5p, 6p, 7p, 8p, 9p,
+				3s, 4s, 5s, 6s, 7s, 8s, 9s,
+			};
+			const HAS_NEXT_TWO: Tile27Set = t27set! {
+				1m, 2m, 3m, 4m, 5m, 6m, 7m,
+				1p, 2p, 3p, 4p, 5p, 6p, 7p,
+				1s, 2s, 3s, 4s, 5s, 6s, 7s,
+			};
+
+			let ts_consider = {
+				let ts_consider = core::simd::Simd::splat((new_tile as u8 & !0b1).cast_signed());
+				let ts_consider = ts_consider + core::simd::Simd::from_array([-4, -4, -2, -2, 2, 2, 4, 4]);
+				core::simd::num::SimdInt::cast::<u8>(ts_consider)
+			};
+
+			let is_valid = {
+				let new_tile = core::simd::Simd::splat(new_tile as u8);
+				let masks = core::simd::Simd::splat(1_u64) << core::simd::num::SimdUint::cast::<u64>(new_tile >> 1);
+				core::simd::cmp::SimdPartialEq::simd_ne(
+					masks & core::simd::Simd::from_array([
+						HAS_PREVIOUS_TWO.present,
+						HAS_PREVIOUS_TWO.present,
+						Tile27Set::HAS_PREVIOUS.present,
+						Tile27Set::HAS_PREVIOUS.present,
+						Tile27Set::HAS_NEXT.present,
+						Tile27Set::HAS_NEXT.present,
+						HAS_NEXT_TWO.present,
+						HAS_NEXT_TWO.present,
+					]),
+					core::simd::Simd::splat(0),
+				)
+			};
+
+			let is_five = {
+				let masks = core::simd::Simd::splat(1_u64) << core::simd::num::SimdUint::cast::<u64>(ts_consider >> 1);
+				core::simd::cmp::SimdPartialEq::simd_ne(
+					masks & core::simd::Simd::from_array([0, Tile27Set::FIVES.present, 0, Tile27Set::FIVES.present, 0, Tile27Set::FIVES.present, 0, Tile27Set::FIVES.present]),
+					core::simd::Simd::splat(0),
+				)
+			};
+			let ts_consider = ts_consider | core::simd::Select::select(is_five, core::simd::Simd::splat(0b1), core::simd::Simd::splat(0b0));
+
+			let is_valid = is_valid & (is_five | core::simd::Mask::from_array([true, false, true, false, true, false, true, false]));
+
+			let ts_consider = core::simd::Select::select(is_valid, ts_consider, core::simd::Simd::splat(INVALID));
+			ts_consider.to_array()
 		}
 
-		fn new_tile_high<NT>(t1: Option<NumberTile>, t2: Option<NumberTile>, new_tile: NumberTile, ts: Tile37SuitedMultiSet<NT>) -> Option<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>)>
+		fn new_tile_high<const NT: usize>(t1: u8, t2: u8, new_tile: NumberTile, ts: Tile37SuitedMultiSet<NT>) -> Option<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<{ (NT - 1) - 1 }>)>
 		where
-			NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+			[(); (NT - 1) - 1]:,
 		{
-			let t1 = t1?;
-			let t1 = ShunLowTile::try_from(t1);
-			let t1 = unsafe { t1.unwrap_unchecked() };
-			let t2 = t2?;
+			if t1 == INVALID || t2 == INVALID { return None; }
+			let t1 = unsafe { core::mem::transmute::<u8, ShunLowTile>(t1) };
+			let t2 = unsafe { core::mem::transmute::<u8, NumberTile>(t2) };
 			let ts = ts.remove(t1.into())?.remove(t2.into())?;
 			let t = unsafe { ShunLowTileAndHasFiveRed::new_unchecked(t1, t2, new_tile) };
 			Some((t, NumberTile::from(t1).previous_in_sequence(), ts))
 		}
 
-		fn new_tile_middle<NT>(t1: Option<NumberTile>, new_tile: NumberTile, t3: Option<NumberTile>, ts: Tile37SuitedMultiSet<NT>) -> Option<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>)>
+		fn new_tile_middle<const NT: usize>(t1: u8, new_tile: NumberTile, t3: u8, ts: Tile37SuitedMultiSet<NT>) -> Option<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<{ (NT - 1) - 1 }>)>
 		where
-			NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+			[(); (NT - 1) - 1]:,
 		{
-			let t1 = t1?;
-			let t1 = ShunLowTile::try_from(t1);
-			let t1 = unsafe { t1.unwrap_unchecked() };
-			let t3 = t3?;
+			if t1 == INVALID || t3 == INVALID { return None; }
+			let t1 = unsafe { core::mem::transmute::<u8, ShunLowTile>(t1) };
+			let t3 = unsafe { core::mem::transmute::<u8, NumberTile>(t3) };
 			let ts = ts.remove(t1.into())?.remove(t3.into())?;
 			let t = unsafe { ShunLowTileAndHasFiveRed::new_unchecked(t1, new_tile, t3) };
 			Some((t, None, ts))
 		}
 
-		fn new_tile_low<NT>(new_tile: NumberTile, t2: Option<NumberTile>, t3: Option<NumberTile>, ts: Tile37SuitedMultiSet<NT>) -> Option<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>)>
+		fn new_tile_low<const NT: usize>(new_tile: NumberTile, t2: u8, t3: u8, ts: Tile37SuitedMultiSet<NT>) -> Option<(ShunLowTileAndHasFiveRed, Option<NumberTile>, Tile37SuitedMultiSet<{ (NT - 1) - 1 }>)>
 		where
-			NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+			[(); (NT - 1) - 1]:,
 		{
-			let t2 = t2?;
-			let t3 = t3?;
+			if t2 == INVALID || t3 == INVALID { return None; }
 			let new_tile = ShunLowTile::try_from(new_tile);
 			let new_tile = unsafe { new_tile.unwrap_unchecked() };
+			let t2 = unsafe { core::mem::transmute::<u8, NumberTile>(t2) };
+			let t3 = unsafe { core::mem::transmute::<u8, NumberTile>(t3) };
 			let ts = ts.remove(t2.into())?.remove(t3.into())?;
 			let t = unsafe { ShunLowTileAndHasFiveRed::new_unchecked(new_tile, t2, t3) };
 			Some((t, t3.next_in_sequence(), ts))
@@ -1799,18 +1674,17 @@ where
 	}
 }
 
-impl<NT, NM> Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> Minjuns<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
 {
 	fn next_inner(
 		&mut self,
 		t: ShunLowTileAndHasFiveRed,
 		cannot_discard: Option<NumberTile>,
-		ts: Tile37SuitedMultiSet<Diff<Diff<NT, U1>, U1>>,
-	) -> Option<(Hand<Diff<Diff<NT, U1>, U1>, Sum<NM, U1>>, Tile37Set)> {
+		ts: Tile37SuitedMultiSet<{ (NT - 1) - 1 }>,
+	) -> Option<(Hand<{ (NT - 1) - 1 }, { NM + 1 }>, Tile37Set)> {
 		let allowed_discards: Tile37Set =
 			ts.into_iter()
 			.filter_map(|(t, _)| {
@@ -1823,46 +1697,16 @@ where
 				Some(t)
 			})
 			.collect();
-		(!allowed_discards.is_empty()).then(|| (Hand(ts, self.ms.concat([HandMeld::Minjun(t)].into())), allowed_discards))
+		(!allowed_discards.is_empty()).then(|| (Hand(ts, append(self.ms, HandMeld::Minjun(t))), allowed_discards))
 	}
 }
 
-impl<NT, NM> Clone for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> Iterator for Minjuns<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
-	GenericArray<HandMeld, NM>: Clone,
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
 {
-	fn clone(&self) -> Self {
-		Self {
-			ms: self.ms.clone(),
-			new_tile: self.new_tile,
-			inner: self.inner.clone(),
-		}
-	}
-}
-
-impl<NT, NM> core::fmt::Debug for Minjuns<NT, NM>
-where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1, Output: core::fmt::Debug>>,
-	NM: ArrayLength,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Minjuns")
-			.field("ms", &self.ms)
-			.field("new_tile", &self.new_tile)
-			.field("inner", &self.inner)
-			.finish()
-	}
-}
-
-impl<NT, NM> Iterator for Minjuns<NT, NM>
-where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
-{
-	type Item = (Hand<Diff<Diff<NT, U1>, U1>, Sum<NM, U1>>, Tile37Set);
+	type Item = (Hand<{ (NT - 1) - 1 }, { NM + 1 }>, Tile37Set);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1879,11 +1723,10 @@ where
 	}
 }
 
-impl<NT, NM> DoubleEndedIterator for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minjuns<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength>,
-	GenericArray<HandMeld, NM>: Copy,
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
 {
 	fn next_back(&mut self) -> Option<Self::Item> {
 		loop {
@@ -1895,10 +1738,9 @@ where
 	}
 }
 
-impl<NT, NM> core::iter::FusedIterator for Minjuns<NT, NM>
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minjuns<NT, NM>
 where
-	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
-	NM: ArrayLength,
+	[(); (NT - 1) - 1]:,
 	Self: Iterator,
 {}
 
@@ -1908,10 +1750,10 @@ where
 #[derive(Clone, Debug)]
 pub enum HandMinjuns {
 	One,
-	Four(Minjuns<U4, U3>),
-	Seven(Minjuns<U7, U2>),
-	Ten(Minjuns<U10, U1>),
-	Thirteen(Minjuns<U13, U0>),
+	Four(Minjuns<4, 3>),
+	Seven(Minjuns<7, 2>),
+	Ten(Minjuns<10, 1>),
+	Thirteen(Minjuns<13, 0>),
 }
 
 impl Iterator for HandMinjuns {
@@ -2034,6 +1876,15 @@ impl DoubleEndedIterator for HandTenpai {
 
 impl core::iter::FusedIterator for HandTenpai {}
 
+fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; N + 1] {
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; N + 1];
+	// SAFETY: N + 1 > N and `[T; _]` has the same alignment as `T`.
+	unsafe { result.as_mut_ptr().cast::<[T; N]>().write(arr); }
+	result[N].write(element);
+	// SAFETY: Appending an element to a `[; N]` initializes all elements of the resulting `[; N + 1]`.
+	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum ToKokushiMusou {
 	Invalid,
@@ -2042,7 +1893,7 @@ enum ToKokushiMusou {
 }
 
 impl ToKokushiMusou {
-	fn new(ts: &Tile37SuitedMultiSet<U13>) -> Self {
+	fn new(ts: &Tile37SuitedMultiSet<13>) -> Self {
 		let Some((duplicate, remaining)) = Self::new_inner((*ts).into()) else { return Self::Invalid; };
 
 		let mut remaining = remaining.into_iter();
@@ -2067,7 +1918,7 @@ impl ToKokushiMusou {
 		}
 	}
 
-	fn tenhou(ts: &Tile37SuitedMultiSet<U14>) -> Option<ScorableHand> {
+	fn tenhou(ts: &Tile37SuitedMultiSet<14>) -> Option<ScorableHand> {
 		let (duplicate, remaining) = Self::new_inner((*ts).into())?;
 		remaining.is_empty().then(|| {
 			// SAFETY: Pigeonhole principle. To get here, thirteen elements were removed from `waits`,
@@ -2077,38 +1928,113 @@ impl ToKokushiMusou {
 		})
 	}
 
-	fn new_inner(mut ts: Tile37SuitedMultiSetInner) -> Option<(core::mem::MaybeUninit<Tile>, Tile34Set)> {
-		let mut waits = Tile34Set::KOKUSHI_MUSOU_VALID;
-		let mut duplicate = core::mem::MaybeUninit::uninit();
-		for &t in &t![1m, 9m, 1p, 9p, 1s, 9s, E, S, W, N, Wh, G, R] {
-			let n = ts.remove_all(t);
-			if n > 0 {
-				waits.remove(t);
-				if n > 1 {
-					duplicate.write(t);
-				}
-			}
+	fn new_inner(ts: Tile37SuitedMultiSetInner) -> Option<(core::mem::MaybeUninit<Tile>, Tile34Set)> {
+		const MASKS: core::simd::Simd<u64, 13> = core::simd::Simd::from_array([
+			0b1 << 0, 0b1 << 8,
+			0b1 << 9, 0b1 << 17,
+			0b1 << 18, 0b1 << 26,
+			0b1 << 27, 0b1 << 28, 0b1 << 29, 0b1 << 30, 0b1 << 31, 0b1 << 32, 0b1 << 33,
+		]);
+
+		let counts = ts.to_simd();
+
+		let counts_numbers = counts.extract::<0, 3>();
+
+		if core::simd::num::SimdUint::reduce_or(counts_numbers) & 0b000_111_111_111_111_111_111_111_111_000 != 0 {
+			return None;
 		}
-		if !ts.is_empty() { return None; }
+
+		let counts_kokushi_numbers = core::simd::simd_swizzle!(counts_numbers, [
+			0, 0, 1, 1, 2, 2,
+		]);
+		let counts_kokushi_numbers = counts_kokushi_numbers >> core::simd::Simd::from_array([
+			0, 27,
+			0, 27,
+			0, 27,
+		]);
+		let counts_kokushi_numbers = core::simd::num::SimdUint::cast::<u8>(counts_kokushi_numbers);
+
+		let counts_kokushi_honors = core::simd::simd_swizzle!(counts, [
+			3, 3, 3, 3, 3, 3, 3,
+		]);
+		let counts_kokushi_honors = counts_kokushi_honors >> core::simd::Simd::from_array([
+			0, 3, 6, 9, 12, 15, 18,
+		]);
+		let counts_kokushi_honors = core::simd::num::SimdUint::cast::<u8>(counts_kokushi_honors);
+
+		let counts = core::simd::simd_swizzle!(counts_kokushi_numbers.resize(0), counts_kokushi_honors, [
+			0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13,
+		]);
+		let counts = counts & core::simd::Simd::splat(0b111);
+
+		let mut duplicate = core::mem::MaybeUninit::uninit();
+		let gt1 = core::simd::cmp::SimdPartialOrd::simd_gt(counts, core::simd::Simd::splat(1));
+		if let Some(first_gt1) = gt1.first_set() {
+			#[expect(clippy::cast_possible_truncation)]
+			let t = first_gt1 as u8;
+			let t = (t << 1) + u8::from(t >= 1) * 14 + u8::from(t >= 3) * 14 + u8::from(t >= 5) * 14;
+			let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
+			duplicate.write(t);
+		}
+
+		let mut waits = Tile34Set::KOKUSHI_MUSOU_VALID;
+		let gt0 = core::simd::cmp::SimdPartialOrd::simd_gt(counts, core::simd::Simd::splat(0));
+		let masks = core::simd::Select::select(gt0, MASKS, core::simd::Simd::splat(0));
+		waits.present &= !core::simd::num::SimdUint::reduce_or(masks);
+
 		Some((duplicate, waits))
 	}
 }
 
-fn to_chiitoi(ts: &Tile37SuitedMultiSet<U13>) -> Option<([ScorableHandPair; 6], Tile)> {
-	let (first, second, pair_representatives) = to_chiitoi_inner(ts.into_iter())?;
+fn to_chiitoi(ts: &Tile37SuitedMultiSet<13>) -> Option<([ScorableHandPair; 6], Tile)> {
+	let (pair_representatives, pair_is, wait) = cfg_select! {
+		use_core_simd => {{
+			let counts = ts.to_counts();
 
-	let diff = first ^ second;
-	let wait = diff.trailing_zeros();
-	let remaining = diff & !(0b1_u64.wrapping_shl(wait));
+			let pair_is = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(2));
 
-	if remaining != 0 {
-		return None;
-	}
+			let num_pairs = core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(pair_is, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8)));
+			if num_pairs != 6 {
+				return None;
+			}
+
+			#[expect(clippy::cast_possible_truncation)]
+			let mut pair_representatives = core::simd::Select::select(
+				pair_is,
+				core::simd::Simd::from_array(core::array::from_fn(|i| i as u8)) << 1,
+				core::simd::Simd::splat(0),
+			);
+			pair_representatives[t!(0m) as usize >> 1] |= u8::from(ts.contains(t!(0m)));
+			pair_representatives[t!(0p) as usize >> 1] |= u8::from(ts.contains(t!(0p)));
+			pair_representatives[t!(0s) as usize >> 1] |= u8::from(ts.contains(t!(0s)));
+
+			let single_is = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(1));
+			let wait = single_is.first_set();
+			// SAFETY: Since `num_pairs` is 6, `ts` is guaranteed to have contained six pairs and one unpaired tile,
+			// and `wait` is guaranteed to be that tile.
+			let wait = unsafe { wait.unwrap_unchecked() };
+
+			(pair_representatives.to_array(), pair_is.to_bitmask(), wait)
+		}},
+
+		_ => {{
+			let (first, second, pair_representatives) = to_chiitoi_scalar_inner(ts.into_iter())?;
+
+			let diff = first ^ second;
+			let wait = diff.trailing_zeros();
+			let remaining = diff & !(0b1_u64.wrapping_shl(wait));
+
+			if remaining != 0 {
+				return None;
+			}
+
+			(pair_representatives, second, wait)
+		}},
+	};
 
 	let mut ps = [const { core::mem::MaybeUninit::uninit() }; 6];
-	chiitoi_extract_pair_representatives(&mut ps, &pair_representatives, second);
-	// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
-	let ps = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<ScorableHandPair>; 6], [ScorableHandPair; 6]>(ps) };
+	chiitoi_extract_pair_representatives(&mut ps, &pair_representatives, pair_is);
+	let ps = unsafe { core::mem::MaybeUninit::array_assume_init(ps) };
 
 	#[expect(clippy::cast_possible_truncation)]
 	let wait = (wait as u8) << 1;
@@ -2119,20 +2045,49 @@ fn to_chiitoi(ts: &Tile37SuitedMultiSet<U13>) -> Option<([ScorableHandPair; 6], 
 	Some((ps, wait))
 }
 
-fn tenhou_to_chiitoi(ts: &Tile37SuitedMultiSet<U14>) -> Option<ScorableHand> {
-	let (first, second, pair_representatives) = to_chiitoi_inner(ts.into_iter())?;
-	if first != second {
-		return None;
-	}
+fn tenhou_to_chiitoi(ts: &Tile37SuitedMultiSet<14>) -> Option<ScorableHand> {
+	let (pair_representatives, pair_is) = cfg_select! {
+		use_core_simd => {{
+			let counts = ts.to_counts();
+
+			let pair_is = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::<u8, 34>::splat(2));
+
+			let num_pairs = core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(pair_is, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8)));
+			if num_pairs != 7 {
+				return None;
+			}
+
+			#[expect(clippy::cast_possible_truncation)]
+			let mut pair_representatives = core::simd::Select::select(
+				pair_is,
+				core::simd::Simd::from_array(core::array::from_fn(|i| i as u8)) << 1,
+				core::simd::Simd::splat(0),
+			);
+			pair_representatives[t!(0m) as usize >> 1] |= u8::from(ts.contains(t!(0m)));
+			pair_representatives[t!(0p) as usize >> 1] |= u8::from(ts.contains(t!(0p)));
+			pair_representatives[t!(0s) as usize >> 1] |= u8::from(ts.contains(t!(0s)));
+
+			(pair_representatives.to_array(), pair_is.to_bitmask())
+		}},
+
+		_ => {{
+			let (first, second, pair_representatives) = to_chiitoi_scalar_inner(ts.into_iter())?;
+			if first != second {
+				return None;
+			}
+
+			(pair_representatives, second)
+		}},
+	};
 
 	let mut ps = [const { core::mem::MaybeUninit::uninit() }; 7];
-	chiitoi_extract_pair_representatives(&mut ps, &pair_representatives, second);
-	// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
-	let ps = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<ScorableHandPair>; 7], [ScorableHandPair; 7]>(ps) };
+	chiitoi_extract_pair_representatives(&mut ps, &pair_representatives, pair_is);
+	let ps = unsafe { core::mem::MaybeUninit::array_assume_init(ps) };
 	Some(ScorableHand::Chiitoi(ScorableHandChiitoi(ps)))
 }
 
-fn to_chiitoi_inner(ts: Tile37SuitedMultiSetIntoIter) -> Option<(u64, u64, [u8; 34])> {
+#[cfg(not(use_core_simd))]
+fn to_chiitoi_scalar_inner(ts: Tile37SuitedMultiSetIntoIter) -> Option<(u64, u64, [u8; 34])> {
 	let mut first = 0_u64;
 	let mut second = 0_u64;
 	let mut pair_representatives = [0_u8; 34];
@@ -2189,12 +2144,16 @@ fn chiitoi_extract_pair_representatives(
 	pair_representatives: &[u8; 34],
 	pair_is: u64,
 ) {
+	// TODO(rustup): Use `core::simd` once it supports register compress.
+	//
+	// Ref: https://github.com/rust-lang/portable-simd/issues/240
+
 	cfg_select! {
 		all(target_arch = "x86_64", target_feature = "avx512vbmi2") => {{
-			let pair_representatives = unsafe { core::arch::x86_64::_mm512_maskz_loadu_epi8((1 << pair_representatives.len()) - 1, <*const _>::cast::<i8>(pair_representatives.as_ptr())) };
+			let pair_representatives = core::simd::Simd::<u8, 64>::load_or_default(pair_representatives);
 			let ps = unsafe { core::arch::x86_64::_mm512_maskz_compress_epi8(pair_is, pair_representatives.into()) };
-			let ps = unsafe { core::mem::transmute_copy::<core::arch::x86_64::__m512i, u64>(&ps) };
-			let ps = ps.to_le_bytes();
+			let ps = core::simd::Simd::from(ps);
+			let ps = ps.to_array();
 			// SAFETY: `pair_is` is a mask of the indices into `pair_representatives` which contain valid pairs.
 			let result = unsafe { core::slice::from_raw_parts_mut(<*mut core::mem::MaybeUninit<ScorableHandPair>>::cast::<core::mem::MaybeUninit<u8>>(result.as_mut_ptr()), result.len()) };
 			result.write_copy_of_slice(&ps[..result.len()]);
@@ -2220,6 +2179,7 @@ fn chiitoi_extract_pair_representatives(
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
