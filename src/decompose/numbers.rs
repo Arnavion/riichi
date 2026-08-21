@@ -39,8 +39,6 @@ const fn m4(m1: NumberMeld, m2: NumberMeld, m3: NumberMeld, m4: NumberMeld) -> M
 
 include!("numbers.generated.rs");
 
-pub(super) const EMPTY: &[(Option<NumberMeld>, Meld<NumberMeld>)] = &[(None, M0)];
-
 pub(super) fn is_valid((counts, len): (u32, u8)) -> bool {
 	if len == 0 {
 		return true;
@@ -88,7 +86,8 @@ pub(super) fn lookup(counts: u32) -> impl Iterator<Item = (u8, &'static [(Option
 }
 
 /// Precomputed lookup state of a particular number suit.
-#[derive(Clone, Copy, Default)]
+#[derive(Copy)]
+#[derive_const(Clone, Default)]
 pub(super) struct SuitState {
 	digits: u32,
 	present: u32,

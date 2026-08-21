@@ -72,7 +72,8 @@ assert_size_of!(Hand<U14, U0>, 20);
 /// This type expects that its variant data is consistent. This means that there are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, PartialEq)]
 #[repr(C, u8, align(2))]
 pub enum HandMeld {
 	/// Closed quad formed by kan.
@@ -297,26 +298,9 @@ impl Hand<U1, U4> {
 }
 
 fn hand_1_4_tenpai(ts: &Tile37MultiSet, inventory: &Tile37MultiSet) -> Tile37Set {
-	debug_assert_eq!(ts.len().into_iter().sum::<u8>(), 1);
+	debug_assert_eq!(core::simd::num::SimdUint::reduce_sum(core::simd::Simd::from_array(ts.len())), 1);
 
-	let remaining = {
-		let (inventory_counts_m, _) = inventory.man();
-		let (inventory_counts_p, _) = inventory.pin();
-		let (inventory_counts_s, _) = inventory.sou();
-		let (inventory_counts_z, _) = inventory.ji();
-
-		let (ts_counts_m, _) = ts.man();
-		let (ts_counts_p, _) = ts.pin();
-		let (ts_counts_s, _) = ts.sou();
-		let (ts_counts_z, _) = ts.ji();
-
-		Tile37Set::from_suit_counts(
-			inventory_counts_m - ts_counts_m,
-			inventory_counts_p - ts_counts_p,
-			inventory_counts_s - ts_counts_s,
-			inventory_counts_z - ts_counts_z,
-		)
-	};
+	let remaining = Tile37Set::from_suit_counts(inventory.to_suits_simd() - ts.to_suits_simd());
 
 	let t1 = ts.clone().into_iter().next();
 	let (t1, _) = unsafe { t1.unwrap_unchecked() };
@@ -410,8 +394,8 @@ hand_into_scorable_hands! {
 	Hand<U10, U1>::fn into_scorable_hands() -> struct Hand10ScorableHands,
 }
 
-assert_size_of!(Hand4ScorableHands, 64);
-assert_size_of!(Hand7ScorableHands, 72);
+assert_size_of!(Hand4ScorableHands, 56);
+assert_size_of!(Hand7ScorableHands, 64);
 assert_size_of!(Hand10ScorableHands, 80);
 
 macro_rules! hand_tenpai {
@@ -454,26 +438,8 @@ hand_tenpai! {
 }
 
 fn hand_middle_tenpai(ts: &Tile37MultiSet, inventory: &Tile37MultiSet) -> Tile37Set {
-	core::debug_assert_matches!(ts.len().into_iter().sum::<u8>(), 4 | 7 | 10);
-
-	let (inventory_counts_m, _) = inventory.man();
-	let (inventory_counts_p, _) = inventory.pin();
-	let (inventory_counts_s, _) = inventory.sou();
-	let (inventory_counts_z, _) = inventory.ji();
-
-	let (ts_counts_m, _) = ts.man();
-	let (ts_counts_p, _) = ts.pin();
-	let (ts_counts_s, _) = ts.sou();
-	let (ts_counts_z, _) = ts.ji();
-
-	let remaining =
-		Tile37Set::from_suit_counts(
-			inventory_counts_m - ts_counts_m,
-			inventory_counts_p - ts_counts_p,
-			inventory_counts_s - ts_counts_s,
-			inventory_counts_z - ts_counts_z,
-		);
-
+	core::debug_assert_matches!(core::simd::num::SimdUint::reduce_sum(core::simd::Simd::from_array(ts.len())), 4 | 7 | 10);
+	let remaining = Tile37Set::from_suit_counts(inventory.to_suits_simd() - ts.to_suits_simd());
 	lookup_tenpai(ts, remaining)
 }
 
@@ -554,26 +520,9 @@ impl Hand<U13, U0> {
 }
 
 fn hand_13_0_tenpai(ts: &Tile37MultiSet, inventory: &Tile37MultiSet) -> Tile37Set {
-	debug_assert_eq!(ts.len().into_iter().sum::<u8>(), 13);
+	debug_assert_eq!(core::simd::num::SimdUint::reduce_sum(core::simd::Simd::from_array(ts.len())), 13);
 
-	let remaining = {
-		let (inventory_counts_m, _) = inventory.man();
-		let (inventory_counts_p, _) = inventory.pin();
-		let (inventory_counts_s, _) = inventory.sou();
-		let (inventory_counts_z, _) = inventory.ji();
-
-		let (ts_counts_m, _) = ts.man();
-		let (ts_counts_p, _) = ts.pin();
-		let (ts_counts_s, _) = ts.sou();
-		let (ts_counts_z, _) = ts.ji();
-
-		Tile37Set::from_suit_counts(
-			inventory_counts_m - ts_counts_m,
-			inventory_counts_p - ts_counts_p,
-			inventory_counts_s - ts_counts_s,
-			inventory_counts_z - ts_counts_z,
-		)
-	};
+	let remaining = Tile37Set::from_suit_counts(inventory.to_suits_simd() - ts.to_suits_simd());
 
 	let mut result = lookup_tenpai(ts, remaining.clone());
 
@@ -603,7 +552,7 @@ pub struct Hand13ScorableHands {
 	lookup: LookupForNewTile<U3>,
 }
 
-assert_size_of!(Hand13ScorableHands, 112);
+assert_size_of!(Hand13ScorableHands, 104);
 
 impl Iterator for Hand13ScorableHands {
 	type Item = ScorableHand;
@@ -683,7 +632,7 @@ pub struct Hand14ScorableHands {
 	regular: LookupForTenhou,
 }
 
-assert_size_of!(Hand14ScorableHands, 128);
+assert_size_of!(Hand14ScorableHands, 120);
 
 impl Iterator for Hand14ScorableHands {
 	type Item = ScorableHand;
@@ -776,7 +725,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Ankan`](Self::Ankan) using the given tiles.
 	///
 	/// Returns `Some` if `KanKouToiTile::kan` returns `Some`, `None` otherwise.
-	pub fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let t = KanKouToiTile::kan(t1, t2, t3, t4)?;
 		Some(Self::Ankan(t))
 	}
@@ -784,7 +733,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minkan`](Self::Minkan) using the given tiles.
 	///
 	/// Returns `Some` if `KanKouToiTile::kan` returns `Some`, `None` otherwise.
-	pub fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let t = KanKouToiTile::kan(t1, t2, t3, t4)?;
 		Some(Self::Minkan(t))
 	}
@@ -792,7 +741,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minkou`](Self::Minkou) using the given tiles.
 	///
 	/// Returns `Some` if `KanKouToiTile::kou` returns `Some`, `None` otherwise.
-	pub fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
+	pub const fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
 		let t = KanKouToiTile::kou(t1, t2, t3)?;
 		Some(Self::Minkou(t))
 	}
@@ -800,7 +749,7 @@ impl HandMeld {
 	/// Construct a `HandMeld` of kind [`Minjun`](Self::Minjun) using the given tiles.
 	///
 	/// Returns `Some` if [`ShunTile::new`] returns `Some`, `None` otherwise.
-	pub fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
 		let t = ShunTile::new(t1, t2, t3)?;
 		Some(Self::Minjun(t))
 	}
@@ -852,7 +801,7 @@ impl HandMeld {
 	}
 }
 
-impl AsRef<ScorableHandMeld> for HandMeld {
+const impl AsRef<ScorableHandMeld> for HandMeld {
 	fn as_ref(&self) -> &ScorableHandMeld {
 		unsafe { &*<*const Self>::cast::<ScorableHandMeld>(self) }
 	}
@@ -1303,7 +1252,8 @@ hand_enum_from! {
 	U14, U0 => HandTentative,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 struct AnkansInner {
 	ts: Tile37MultiSet,
 	tiles: Tile34SetIntoIter,
@@ -1357,6 +1307,8 @@ impl ExactSizeIterator for AnkansInner {
 }
 
 impl core::iter::FusedIterator for AnkansInner {}
+
+unsafe impl core::iter::TrustedLen for AnkansInner {}
 
 /// An [`Iterator`] of [`Hand<{ NT - 4 }, { NM + 1 }>`] values formed by creating an ankan in the given hand.
 pub struct Ankans<NT, NM>
@@ -1470,6 +1422,12 @@ where
 	Self: Iterator,
 {}
 
+unsafe impl<NT, NM> core::iter::TrustedLen for Ankans<NT, NM>
+where
+	NM: ArrayLength,
+	Self: Iterator,
+{}
+
 /// An [`Iterator`] of [`HandStable`] values formed by creating an ankan in the given hand.
 #[derive(Clone, Debug)]
 pub struct HandAnkans {
@@ -1523,6 +1481,8 @@ impl ExactSizeIterator for HandAnkans {
 }
 
 impl core::iter::FusedIterator for HandAnkans {}
+
+unsafe impl core::iter::TrustedLen for HandAnkans {}
 
 fn find_daiminkan(
 	mut ts: Tile37MultiSet,
@@ -1686,7 +1646,8 @@ impl Iterator for HandShouminkans {
 
 impl core::iter::FusedIterator for HandShouminkans {}
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_const(Clone)]
 struct MinkousInner {
 	ts: Tile37MultiSet,
 	new_tile_is_red: bool,
@@ -1777,6 +1738,8 @@ impl ExactSizeIterator for MinkousInner {
 }
 
 impl core::iter::FusedIterator for MinkousInner {}
+
+unsafe impl core::iter::TrustedLen for MinkousInner {}
 
 /// An [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`] values formed by creating a minkou in the given hand using the given new tile.
 pub struct Minkous<NT, NM>
@@ -1892,6 +1855,13 @@ where
 	Self: Iterator,
 {}
 
+unsafe impl<NT, NM> core::iter::TrustedLen for Minkous<NT, NM>
+where
+	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+	NM: ArrayLength,
+	Self: Iterator,
+{}
+
 /// An [`Iterator`] of [`HandTentative`] values formed by creating a minkou in the given hand using the given new tile.
 #[derive(Clone, Debug)]
 pub struct HandMinkous {
@@ -1946,7 +1916,10 @@ impl ExactSizeIterator for HandMinkous {
 
 impl core::iter::FusedIterator for HandMinkous {}
 
-#[derive(Clone, Debug)]
+unsafe impl core::iter::TrustedLen for HandMinkous {}
+
+#[derive(Debug)]
+#[derive_const(Clone)]
 struct MinjunsInner {
 	ts: Tile37MultiSet,
 	new_tile: NumberTile,
@@ -1975,12 +1948,12 @@ impl MinjunsInner {
 			while i < result.len() {
 				let number = i + 1;
 				result[i] =
-					(((number == 6) as u16) << 1) |
-					(((number == 7) as u16) << 2) |
-					(((number == 4) as u16) << 4) |
-					(((number == 6) as u16) << 5) |
-					(((number == 3) as u16) << 7) |
-					(((number == 4) as u16) << 8);
+					(u16::from(number == 6) << 1) |
+					(u16::from(number == 7) << 2) |
+					(u16::from(number == 4) << 4) |
+					(u16::from(number == 6) << 5) |
+					(u16::from(number == 3) << 7) |
+					(u16::from(number == 4) << 8);
 				i += 1;
 			}
 			result
@@ -2150,6 +2123,8 @@ impl ExactSizeIterator for MinjunsInner {
 
 impl core::iter::FusedIterator for MinjunsInner {}
 
+unsafe impl core::iter::TrustedLen for MinjunsInner {}
+
 /// An [`Iterator`] of [`Hand<{ NT - 2 }, { NM + 1 }>`] values formed by creating a minjun in the given hand using the given new tile.
 ///
 /// Along with the `Hand`, the iterator element optionally contains a tile that is not allowed to be discarded due to kuikae-nashi.
@@ -2269,6 +2244,13 @@ where
 	Self: Iterator,
 {}
 
+unsafe impl<NT, NM> core::iter::TrustedLen for Minjuns<NT, NM>
+where
+	NT: core::ops::Sub<U1, Output: core::ops::Sub<U1>>,
+	NM: ArrayLength,
+	Self: Iterator,
+{}
+
 /// An [`Iterator`] of [`HandTentative`] values formed by creating a minjun in the given hand using the given new tile.
 ///
 /// Along with the `HandTentative`, the iterator element optionally contains a tile that is not allowed to be discarded due to kuikae-nashi.
@@ -2328,6 +2310,8 @@ impl ExactSizeIterator for HandMinjuns {
 
 impl core::iter::FusedIterator for HandMinjuns {}
 
+unsafe impl core::iter::TrustedLen for HandMinjuns {}
+
 /// An [`Iterator`] of [`ScorableHand`]s that can be created from the original [`HandStable`] and the given drawn / called tile.
 #[derive(Clone, Debug)]
 pub enum HandScorableHands {
@@ -2338,7 +2322,7 @@ pub enum HandScorableHands {
 	Thirteen(Hand13ScorableHands),
 }
 
-assert_size_of!(HandScorableHands, 112);
+assert_size_of!(HandScorableHands, 104);
 
 impl Iterator for HandScorableHands {
 	type Item = ScorableHand;
@@ -2366,14 +2350,16 @@ impl Iterator for HandScorableHands {
 
 impl core::iter::FusedIterator for HandScorableHands {}
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 pub(crate) enum ToKokushiMusou {
 	Invalid,
 	Single { wait: Tile, duplicate: Tile },
 	Any,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 enum ToKokushiMusouInner {
 	Invalid,
 	Single { wait: Tile },
@@ -2382,7 +2368,7 @@ enum ToKokushiMusouInner {
 
 impl ToKokushiMusou {
 	pub(crate) fn new(ts: &Tile37MultiSet) -> Self {
-		debug_assert_eq!(ts.len().into_iter().sum::<u8>(), 13);
+		debug_assert_eq!(core::simd::num::SimdUint::reduce_sum(core::simd::Simd::from_array(ts.len())), 13);
 
 		let (wait, duplicate) = Self::new_inner(ts);
 		match wait {
@@ -2466,8 +2452,7 @@ fn to_chiitoi(ts: &Tile37CountedMultiSet<U13>) -> Option<([ScorableHandPair; 6],
 	let mut ps = [const { core::mem::MaybeUninit::uninit() }; 6];
 	// SAFETY: Requirements satisfied by construction in `ToChiitoiInner::new`.
 	unsafe { chiitoi_extract_pair_representatives(&mut ps, one_red_five_mask, two_red_fives_mask, pair_is); }
-	// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
-	let ps = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<ScorableHandPair>; 6], [ScorableHandPair; 6]>(ps) };
+	let ps = unsafe { core::mem::MaybeUninit::array_assume_init(ps) };
 	Some((ps, unpaired))
 }
 
@@ -2476,12 +2461,12 @@ fn tenhou_to_chiitoi(ts: &Tile37CountedMultiSet<U14>) -> Option<ScorableHandChii
 	let mut ps = [const { core::mem::MaybeUninit::uninit() }; 7];
 	// SAFETY: Requirements satisfied by construction in `ToChiitoiInner::new`.
 	unsafe { chiitoi_extract_pair_representatives(&mut ps, one_red_five_mask, two_red_fives_mask, pair_is); }
-	// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
-	let [p1, p2, p3, p4, p5, p6, p7] = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<ScorableHandPair>; 7], [ScorableHandPair; 7]>(ps) };
+	let [p1, p2, p3, p4, p5, p6, p7] = unsafe { core::mem::MaybeUninit::array_assume_init(ps) };
 	Some(ScorableHandChiitoi { pairs: [p1, p2, p3, p4, p5, p6], p7, tsumo_or_ron: TsumoOrRon::Tsumo })
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 enum ToChiitoiInner {
 	Invalid,
 	SingleUnpaired { one_red_five_mask: u64, two_red_fives_mask: u64, pair_is: u64, unpaired: Tile },
@@ -2490,14 +2475,17 @@ enum ToChiitoiInner {
 
 impl ToChiitoiInner {
 	fn new(ts: &Tile37MultiSet) -> Self {
-		fn new_inner(ts: &Tile37MultiSet) -> Option<(u32, u64, u64, u64, [u32; 4])> {
+		fn new_inner(ts: &Tile37MultiSet) -> Option<(u32, u64, u64, u64, core::simd::Simd<u32, 4>)> {
 			const LSB: u32 = ((0b1 << (3 * 9)) - 1) / 7;
 
 			let ts34 = Tile34MultiSet::from(ts.clone());
-			let counts = ts34.to_suits();
-			let counts_b0 = counts.map(|count| count & LSB);
-			let eq2 = counts.map(|count| !(count & LSB) & (count >> 1) & LSB);
-			let num_pairs = eq2.into_iter().map(u32::count_ones).sum();
+			let counts = ts34.to_suits_simd();
+			let counts_b0 = counts & core::simd::Simd::splat(LSB);
+			let eq2 = {
+				let b1 = (counts >> 1) & core::simd::Simd::splat(LSB);
+				!counts_b0 & b1
+			};
+			let num_pairs = core::simd::num::SimdUint::reduce_sum(core::simd::num::SimdUint::count_ones(eq2));
 
 			if num_pairs != 6 && num_pairs != 7 {
 				return None;
@@ -2511,14 +2499,11 @@ impl ToChiitoiInner {
 				);
 
 			let mut pair_is = eq2;
-			for p in &mut pair_is {
+			for p in pair_is.as_mut_array() {
 				*p = extract_bits32::<0, 1, 3, 9>(*p);
 			}
-			let pair_is =
-				u64::from(pair_is[0]) |
-				(u64::from(pair_is[1]) << 9) |
-				(u64::from(pair_is[2]) << 18) |
-				(u64::from(pair_is[3]) << 27);
+			let pair_is = core::simd::num::SimdUint::cast::<u64>(pair_is) << core::simd::Simd::from_array([0, 9, 18, 27]);
+			let pair_is = core::simd::num::SimdUint::reduce_or(pair_is);
 
 			Some((num_pairs, one_red_five_mask, two_red_fives_mask, pair_is, counts_b0))
 		}
@@ -2530,8 +2515,12 @@ impl ToChiitoiInner {
 
 		// SAFETY: Since `num_pairs` is 6, `ts` is guaranteed to have contained six pairs and one unpaired tile.
 		// Thus exactly one suit is guaranteed to have an odd number of tiles, ie a count with bit 0 set.
-		let suit = counts_b0.into_iter().position(|count| count != 0);
+		let suit = core::simd::cmp::SimdPartialEq::simd_ne(counts_b0, core::simd::Simd::splat(0));
+		let suit = suit.first_set();
 		let suit = unsafe { suit.unwrap_unchecked() };
+		// Micro-optimization: `first_set` asserts this bound already, except on the x86_64 specialized path,
+		// so on x86_64 rustc ends up emitting a bounds check unless we assert it ourselves.
+		unsafe { core::hint::assert_unchecked(suit < counts_b0.len()); }
 		let offset = counts_b0[suit].trailing_zeros();
 		#[expect(clippy::cast_possible_truncation)]
 		let unpaired = (((suit as u8) * 9 + (offset / 3) as u8) << 2) + t!(1m) as u8;
@@ -2574,6 +2563,7 @@ unsafe fn chiitoi_extract_pair_representatives(
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	use super::*;
 

@@ -1,3 +1,25 @@
+#![feature(
+	cmp_minmax,
+	const_clone,
+	const_cmp,
+	const_convert,
+	const_default,
+	const_index,
+	const_ops,
+	const_range,
+	const_trait_impl,
+	const_try,
+	derive_const,
+	maybe_uninit_array_assume_init,
+	maybe_uninit_fill,
+	portable_simd,
+	trusted_len,
+	uint_gather_scatter_bits,
+)]
+#![cfg_attr(test, feature(
+	coverage_attribute,
+))]
+
 #![no_std]
 
 //! # To simulate a round
@@ -47,6 +69,7 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
+//! # #![feature(const_default, const_trait_impl)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -116,6 +139,7 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
+//! # #![feature(const_default, const_trait_impl)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -984,6 +1008,7 @@ macro_rules! make_scorable_hand {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use riichi::{tn, t27set};
 /// #
@@ -995,7 +1020,7 @@ macro_rules! make_scorable_hand {
 macro_rules! t27set {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile27Set::new();
+		let mut result = $crate::Tile27Set::default();
 		$(
 			result.insert($crate::tn!($t));
 		)*
@@ -1007,6 +1032,7 @@ macro_rules! t27set {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use riichi::{t, t34set};
 /// #
@@ -1018,7 +1044,7 @@ macro_rules! t27set {
 macro_rules! t34set {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile34Set::new();
+		let mut result = $crate::Tile34Set::default();
 		$(
 			result.insert($crate::t!($t));
 		)*
@@ -1030,6 +1056,7 @@ macro_rules! t34set {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use riichi::{t, t37set};
 /// #
@@ -1041,7 +1068,7 @@ macro_rules! t34set {
 macro_rules! t37set {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile37Set::new();
+		let mut result = $crate::Tile37Set::default();
 		$(
 			result.insert($crate::t!($t));
 		)*
@@ -1053,6 +1080,7 @@ macro_rules! t37set {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use std::num::NonZero;
 /// # use riichi::{tn, t27multiset};
@@ -1069,7 +1097,7 @@ macro_rules! t37set {
 macro_rules! t27multiset {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile27MultiSet::new();
+		let mut result = $crate::Tile27MultiSet::default();
 		$(
 			result.insert($crate::tn!($t));
 		)*
@@ -1081,6 +1109,7 @@ macro_rules! t27multiset {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use std::num::NonZero;
 /// # use riichi::{t, t34multiset};
@@ -1099,7 +1128,7 @@ macro_rules! t27multiset {
 macro_rules! t34multiset {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile34MultiSet::new();
+		let mut result = $crate::Tile34MultiSet::default();
 		$(
 			result.insert($crate::t!($t));
 		)*
@@ -1111,6 +1140,7 @@ macro_rules! t34multiset {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use std::num::NonZero;
 /// # use riichi::{t, t37multiset};
@@ -1132,7 +1162,7 @@ macro_rules! t34multiset {
 macro_rules! t37multiset {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile37MultiSet::new();
+		let mut result = $crate::Tile37MultiSet::default();
 		$(
 			result.insert($crate::t!($t));
 		)*
@@ -1201,6 +1231,7 @@ pub use tile::{
 
 mod tile_multi_set;
 pub use tile_multi_set::{
+	TileMultiSet, Kind as TileMultiSetKind, TileMultiSetIntoIter,
 	Tile27MultiSet, Tile27MultiSetIntoIter,
 	Tile34MultiSet, Tile34MultiSetIntoIter,
 	Tile37MultiSet, Tile37MultiSetIntoIter,
@@ -1209,12 +1240,14 @@ pub use tile_multi_set::{
 
 mod tile_set;
 pub use tile_set::{
+	TileSet, Kind as TileSetKind, TileSetIntoIter,
 	Tile27Set, Tile27SetIntoIter,
 	Tile34Set, Tile34SetIntoIter,
 	Tile37Set, Tile37SetIntoIter,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum GameType {
 	/// Standard four-player game.
 	Yonma,
@@ -1223,7 +1256,8 @@ pub enum GameType {
 }
 
 /// Used to identify the type of a meld when parsing an MPSZ string.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum HandMeldType {
 	/// An ankan, indicated by `+`.
 	Ankan,
@@ -1236,7 +1270,8 @@ pub enum HandMeldType {
 /// Indicates where the winning tile was drawn from.
 ///
 /// This can be constructed from a [`WinningTileFrom`] with `.into()`.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TsumoOrRon {
 	/// The tile was drawn from the wall.
 	Tsumo,
@@ -1245,7 +1280,7 @@ pub enum TsumoOrRon {
 }
 
 /// Optimized sorting for some specific types.
-pub trait SortingNetwork {
+pub const trait SortingNetwork {
 	fn sort(&mut self);
 }
 
@@ -1255,40 +1290,66 @@ pub trait SortingNetwork {
 // Specifically, on both x86_64 and RV, the `sort_unstable` codegen ends up using stack space and has many branches,
 // while this sorting network version fits entirely in registers, has no branches, and is shorter to boot (three / five `maxu; minu` pairs on RV).
 
-impl<T> SortingNetwork for [T; 1] {
+macro_rules! minmax {
+	($self:ident, $i:literal, $j:literal) => {
+		[$self[$i], $self[$j]] = core::cmp::minmax($self[$i], $self[$j]);
+	};
+}
+
+const impl<T> SortingNetwork for [T; 1] {
 	fn sort(&mut self) {}
 }
 
-impl<T> SortingNetwork for [T; 2]
+const impl<T> SortingNetwork for [T; 2]
 where
-	T: Copy + Ord,
+	T: Copy + [const] Ord,
 {
 	fn sort(&mut self) {
-		(self[0], self[1]) = (self[0].min(self[1]), self[0].max(self[1]));
+		minmax!(self, 0, 1);
 	}
 }
 
-impl<T> SortingNetwork for [T; 3]
+const impl<T> SortingNetwork for [T; 3]
 where
-	T: Copy + Ord,
+	T: Copy + [const] Ord,
 {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 2), (0, 1), (1, 2)] {
-			(self[i], self[j]) = (self[i].min(self[j]), self[i].max(self[j]));
-		}
+		minmax!(self, 0, 2);
+		minmax!(self, 0, 1);
+		minmax!(self, 1, 2);
 	}
 }
 
-impl<T> SortingNetwork for [T; 4]
+const impl<T> SortingNetwork for [T; 4]
 where
-	T: Copy + Ord,
+	T: Copy + [const] Ord,
 {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 2), (1, 3), (0, 1), (2, 3), (1, 2)] {
-			(self[i], self[j]) = (self[i].min(self[j]), self[i].max(self[j]));
-		}
+		minmax!(self, 0, 2);
+		minmax!(self, 1, 3);
+		minmax!(self, 0, 1);
+		minmax!(self, 2, 3);
+		minmax!(self, 1, 2);
 	}
 }
+
+/// Parameterizes a [`TileSet`] and [`TileMultiSet`] to hold [`NumberTile`]s,
+/// considering [`N5`](crate::Number::N5) and [`N0`](crate::Number::N0) as identical tiles.
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub struct Tile27;
+
+/// Parameterizes a [`TileSet`] and [`TileMultiSet`] to hold [`Tile`]s,
+/// considering [`N5`](crate::Number::N5) and [`N0`](crate::Number::N0) as identical tiles.
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub struct Tile34;
+
+/// Parameterizes a [`TileSet`] and [`TileMultiSet`] to hold [`Tile`]s,
+/// considering [`N5`](crate::Number::N5) and [`N0`](crate::Number::N0) as distinct tiles.
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub struct Tile37;
 
 // TODO(rustup): Replace this with `uN::extract_bits` if it starts generating as efficient code as this.
 macro_rules! make_extract_bits {
@@ -1298,7 +1359,7 @@ macro_rules! make_extract_bits {
 			#[doc = concat!("Equivalent to [`", stringify!($ty), "::extract_bits`] but requires that the bits to be extracted are the `WIDTH` contiguous bits at indices")]
 			/// `START`, `START + REPEAT`, `START + 2 * REPEAT`, ... `START + (N - 1) * REPEAT`, and all other bits are `0`.
 			fn $name<const START: u8, const WIDTH: u8, const REPEAT: u8, const N: u8>(x: $ty) -> $ty {
-				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && (START as u32) + (N as u32 - 1) * (REPEAT as u32) + (WIDTH as u32) <= <$ty>::BITS)); }
+				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS)); }
 
 				if N == 0 {
 					return x;
@@ -1350,7 +1411,7 @@ macro_rules! make_extract_bits {
 
 				const MAX_STEPS: usize = <$ty>::BITS.ilog2() as usize;
 
-				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && (START as u32) + (N as u32 - 1) * (REPEAT as u32) + (WIDTH as u32) <= <$ty>::BITS)); }
+				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS)); }
 
 				if N == 0 {
 					return x;
@@ -1375,9 +1436,9 @@ macro_rules! make_extract_bits {
 					let mut i = 0;
 					while i < num_steps {
 						let w = 0b1_u32 << i;
-						let group_width = if mask_before_shifting { 1 } else { 2 } * w * (WIDTH as u32);
+						let group_width = if mask_before_shifting { 1 } else { 2 } * w * u32::from(WIDTH);
 						let group: $ty = (0b1 << group_width) - 1;
-						let stride = 2 * w * (REPEAT as u32);
+						let stride = 2 * w * u32::from(REPEAT);
 						let mut pos = 0;
 						while pos < <$ty>::BITS {
 							masks[i] |= group << pos;
