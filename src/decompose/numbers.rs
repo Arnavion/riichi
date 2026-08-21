@@ -38,8 +38,6 @@ const fn m4(m1: NumberMeld, m2: NumberMeld, m3: NumberMeld, m4: NumberMeld) -> M
 
 include!("numbers.generated.rs");
 
-pub(super) const EMPTY: &[(Option<NumberMeld>, Meld<NumberMeld>)] = &[(None, M0)];
-
 pub(super) fn is_valid((counts, len): (u32, u8)) -> bool {
 	if len == 0 {
 		return true;
@@ -87,7 +85,8 @@ pub(super) fn lookup(counts: u32) -> impl Iterator<Item = (u8, &'static [(Option
 }
 
 /// Precomputed lookup state of a particular number suit.
-#[derive(Clone, Copy, Default)]
+#[derive(Copy)]
+#[derive_const(Clone, Default)]
 pub(super) struct SuitState {
 	digits: u32,
 	present: u32,
@@ -281,31 +280,7 @@ fn digits_and_present(counts: u32) -> (u32, u32) {
 	// Micro-optimization: The combination could use a shift of 28 instead of 32, because `counts` only has 30 bits and the lower two bits of `present` are 0.
 	// However shifting by 32 means RISC-V can use `add.uw` to do the combination instead of separate `slli 30; or`.
 	let digits_and_present = (u64::from(present) << 32) | u64::from(counts);
-	let digits_and_present = cfg_select! {
-		all(target_arch = "x86_64", target_feature = "bmi2") =>
-			unsafe { core::arch::x86_64::_pext_u64(digits_and_present, (0o333_333_333 << 33) | 0o333_333_333) },
-
-		_ => {{
-			const fn step(x: u64, mask: u64, shift: u8) -> u64 {
-				let mask = mask | (mask << 33);
-				(x & !mask) | ((x & mask) >> shift)
-			}
-
-			//                                                  0ii_0hh_0gg_0ff_0ee_0dd_0cc_0bb_0aa
-			let digits_and_present = digits_and_present & ((0o333_333_333 << 33) | 0o333_333_333);
-			//                                               -> 0ii_00h_hgg_00f_fee_00d_dcc_00b_baa
-			let digits_and_present = step(digits_and_present, 0b000_011_000_011_000_011_000_011_000, 1);
-			//                                               -> 0ii_000_0hh_ggf_fee_000_0dd_ccb_baa
-			let digits_and_present = step(digits_and_present, 0b000_001_111_000_000_001_111_000_000, 2);
-			//                                               -> 0ii_000_000_00h_hgg_ffe_edd_ccb_baa
-			let digits_and_present = step(digits_and_present, 0b000_000_011_111_111_000_000_000_000, 4);
-			//                                               -> 000_000_000_iih_hgg_ffe_edd_ccb_baa
-			let digits_and_present = step(digits_and_present, 0b011_000_000_000_000_000_000_000_000, 8);
-			let present = digits_and_present >> 33;
-			let digits = digits_and_present & 0b11_11_11_11_11_11_11_11_11;
-			(present << (2 * 9)) | digits
-		}},
-	};
+	let digits_and_present = digits_and_present.extract_bits(0o333_333_333 * ((1 << 33) + 1));
 	// Concatenation of all digits. Also set bit 18, the bit right after the 9th digit, so that if a run starts at the 9th digit,
 	// then it too has has a length marker.
 	#[expect(clippy::cast_possible_truncation)]
