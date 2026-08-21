@@ -8,9 +8,9 @@ podman run -it --rm -v "$PWD:/src" -v "${RUSTUP_HOME:-$HOME/.rustup}:/root/.rust
 
 RV-v: `--edition 2024 -C opt-level=3 --target riscv64gc-unknown-linux-gnu -C target-feature=+b,+zca,+zcb,+zicond`
 
-RV+v: `--edition 2024 -C opt-level=3 --target riscv64gc-unknown-linux-gnu -C target-feature=+b,+zca,+zcb,+zicond,+v,+zvbb`
+RV+v: `--edition 2024 -C opt-level=3 --target riscv64gc-unknown-linux-gnu -C target-feature=+b,+zca,+zcb,+zicond --cfg use_core_simd -Z llvm-target-feature=+v,+zvbb -C unsafe-allow-abi-mismatch=llvm-target-feature`
 
-x86_64: `--edition 2024 -C opt-level=3 --target x86_64-unknown-linux-gnu -C target-cpu=x86-64-v4`
+x86_64: `--edition 2024 -C opt-level=3 --target x86_64-unknown-linux-gnu -C target-cpu=x86-64-v4 --cfg use_core_simd`
 
 ## Panics
 
