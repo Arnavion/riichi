@@ -1,5 +1,5 @@
 /Cargo.lock
 /target
 /target-rv
-/target-rvv-*
+/target-rvv
 /target-x86_64

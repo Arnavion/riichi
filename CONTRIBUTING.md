@@ -8,7 +8,7 @@ podman run -it --rm -v "$PWD:/src" -v "${RUSTUP_HOME:-$HOME/.rustup}:/root/.rust
 
 RV-v: `--edition 2024 -C opt-level=3 -C target-feature=+b,+zca,+zcb,+zicond`
 
-RV+v: `--edition 2024 -C opt-level=3 -C target-feature=+b,+zca,+zcb,+zicond,+v,+zvbb`
+RV+v: `--edition 2024 -C opt-level=3 -C target-feature=+b,+zca,+zcb,+zicond -Z llvm-target-feature=+v,+zvbb -C unsafe-allow-abi-mismatch=llvm-target-feature`
 
 x86_64: `--edition 2024 -C opt-level=3`
 
