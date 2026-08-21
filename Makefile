@@ -30,8 +30,8 @@ test-rvv: test-rvv-128 test-rvv-256 test-rvv-512 test-rvv-1024
 # Suffix is VLEN
 test-rvv-%: $(DECOMPOSE_LUTS)
 	CARGO_TARGET_DIR='target-rvv-$*' \
-		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUSTFLAGS='-C target-feature=+v,+zvbb' \
-		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUSTDOCFLAGS='-C target-feature=+v,+zvbb' \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUSTFLAGS='-Z llvm-target-feature=+v,+zvbb -C unsafe-allow-abi-mismatch=llvm-target-feature' \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUSTDOCFLAGS='-Z llvm-target-feature=+v,+zvbb -C unsafe-allow-abi-mismatch=llvm-target-feature' \
 		QEMU_CPU='rv64,zca=true,zcb=true,zicond=true,v=true,zvbb=true,rvv_ta_all_1s=on,rvv_ma_all_1s=on,vlen=$*' \
 		cargo test --quiet --workspace --target riscv64gc-unknown-linux-gnu
 
