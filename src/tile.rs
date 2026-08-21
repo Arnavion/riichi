@@ -27,7 +27,8 @@ use crate::{
 const START: u8 = 0x00;
 
 /// A tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum Tile {
 	#[expect(clippy::identity_op)]
@@ -81,7 +82,8 @@ pub enum Tile {
 }
 
 /// A number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum NumberTile {
 	#[expect(clippy::identity_op)]
@@ -121,7 +123,8 @@ pub enum NumberTile {
 }
 
 /// The tile that makes up a kantsu / koutsu / toitsu, plus the lower two bits encode the number of `FiveRed`s in the group.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum KanKouToiTile {
 	#[expect(clippy::identity_op)]
@@ -171,7 +174,8 @@ pub enum KanKouToiTile {
 }
 
 /// A number tile that is the lowest tile of a shun.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunLowTile {
 	#[expect(clippy::identity_op)]
@@ -205,7 +209,8 @@ pub enum ShunLowTile {
 }
 
 /// A number tile that is the lowest tile of a shun, plus a bit that is set if the shun contains a `FiveRed`.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunLowTileAndHasFiveRed {
 	#[expect(clippy::identity_op)]
@@ -242,7 +247,8 @@ pub enum ShunLowTileAndHasFiveRed {
 }
 
 /// A wind tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum WindTile {
 	/// East
@@ -256,7 +262,8 @@ pub enum WindTile {
 }
 
 /// A dragon tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum DragonTile {
 	/// White
@@ -268,14 +275,16 @@ pub enum DragonTile {
 }
 
 /// A number tile broken down into its suit and number.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct NumberTileClassified {
 	pub suit: NumberSuit,
 	pub number: Number,
 }
 
 /// The suit of a number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum NumberSuit {
 	/// Characters
@@ -287,7 +296,8 @@ pub enum NumberSuit {
 }
 
 /// The value of a number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum Number {
 	#[expect(clippy::identity_op)]
@@ -304,7 +314,8 @@ pub enum Number {
 }
 
 /// The value of a [`ShunLowTile`].
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunLowNumber {
 	#[expect(clippy::identity_op)]
@@ -319,7 +330,7 @@ pub enum ShunLowNumber {
 }
 
 /// A trait for comparing tiles based on treating `Five` and `FiveRed` tiles as equal.
-pub trait CmpIgnoreRed {
+pub const trait CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering;
 
 	fn eq_ignore_red(&self, other: &Self) -> bool {
@@ -372,7 +383,8 @@ impl Tile {
 	where
 		N: ArrayLength,
 	{
-		#[derive(Clone, Copy, Debug)]
+		#[derive(Copy, Debug)]
+		#[derive_const(Clone)]
 		enum Op {
 			// An error variant is defined here because the alternative is `OPS: [Option<Op>; 256]` which ends up encoding `None::<Op>` as `0b03`.
 			// It's nicer to encode the error case as `0b00` since most of the table will be filled with that.
@@ -476,7 +488,7 @@ impl Tile {
 	/// assert_eq!(t!(2m).indicates_dora(GameType::Yonma), t!(3m));
 	/// assert_eq!(t!(1m).indicates_dora(GameType::Sanma), t!(9m));
 	/// ```
-	pub fn indicates_dora(self, game_type: GameType) -> Self {
+	pub const fn indicates_dora(self, game_type: GameType) -> Self {
 		// Micro-optimization: This generates branchless code and avoids the need for a LUT.
 		//
 		// Tested exhaustively in the `tile_indicates_dora` test.
@@ -511,7 +523,8 @@ impl Tile {
 		// We can do better with `Tile34Set` plus a simple additional check that `self` isn't already red.
 		const FIVES: Tile34Set = t34set![5m, 5p, 5s];
 
-		if (!(self as u8)) & (FIVES.contains(self) as u8) == 0b1 {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
+		if (!(self as u8)) & u8::from(FIVES.contains(self)) == 0b1 {
 			let result = (self as u8) | 0b1;
 			let result = unsafe { core::mem::transmute::<u8, Self>(result) };
 			Some(result)
@@ -525,6 +538,10 @@ impl Tile {
 		(t as u8 - t!(1m) as u8) >> 2
 	}
 
+	pub(crate) fn offsets<const N: usize>(ts: core::simd::Simd<u8, N>) -> core::simd::Simd<u8, N> {
+		(ts - core::simd::Simd::splat(t!(1m) as u8)) >> 2
+	}
+
 	pub(crate) fn mask<T>(offset: u8) -> T
 	where
 		T: From<u8> + core::ops::Shl<u8, Output = T>,
@@ -533,29 +550,36 @@ impl Tile {
 		one << offset
 	}
 
-	pub(crate) fn suits_mask(mask: u64) -> u8 {
-		const SUIT_MASKS: [u64; 5] = [
+	pub(crate) fn masks<T, const N: usize>(offsets: core::simd::Simd<u8, N>) -> core::simd::Simd<T, N>
+	where
+		T: core::simd::SimdCast + core::simd::SimdElement,
+		core::simd::Simd<T, N>: core::ops::Shl<Output = core::simd::Simd<T, N>>,
+	{
+		let ones = core::simd::num::SimdUint::cast::<T>(core::simd::Simd::splat(0b1_u8));
+		let offsets = core::simd::num::SimdUint::cast::<T>(offsets);
+		ones << offsets
+	}
+
+	pub(crate) fn suits_mask(tiles_mask: u64) -> u8 {
+		const SUIT_MASKS: core::simd::Simd<u64, 5> = core::simd::Simd::from_array([
 			0b0000000_000000000_000000000_111111111,
 			0b0000000_000000000_111111111_000000000,
 			0b0000000_111111111_000000000_000000000,
 			0b0001111_000000000_000000000_000000000,
 			0b1110000_000000000_000000000_000000000,
-		];
+		]);
 
-		SUIT_MASKS.into_iter()
-			.enumerate()
-			.fold(0, |acc, (i, suit_mask)| acc | (u8::from(mask & suit_mask != 0) << i))
-	}
-
-	// TODO(rustup): Inline this into `From<NumberTile>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTile) -> Self {
-		// SAFETY: Lines up with the explicit values given to the `Tile` and `NumberTile` variants,
-		// and tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
-		unsafe { core::mem::transmute::<u8, Self>(t as u8) }
+		let tiles_mask = core::simd::Simd::splat(tiles_mask);
+		let suit_mask = tiles_mask & SUIT_MASKS;
+		let suit_mask = core::simd::cmp::SimdPartialEq::simd_ne(suit_mask, core::simd::Simd::splat(0));
+		#[expect(clippy::cast_possible_truncation)]
+		let result = suit_mask.to_bitmask() as u8;
+		unsafe { core::hint::assert_unchecked(result <= 0b11111); }
+		result
 	}
 }
 
-impl CmpIgnoreRed for Tile {
+const impl CmpIgnoreRed for Tile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 2).cmp(&((*other as u8) >> 2))
 	}
@@ -585,25 +609,25 @@ impl core::fmt::Display for Tile {
 	}
 }
 
-impl From<NumberTile> for Tile {
+const impl From<NumberTile> for Tile {
 	fn from(t: NumberTile) -> Self {
-		Self::const_from(t)
+		*t.as_ref()
 	}
 }
 
-impl From<ShunLowTile> for Tile {
+const impl From<ShunLowTile> for Tile {
 	fn from(t: ShunLowTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<WindTile> for Tile {
+const impl From<WindTile> for Tile {
 	fn from(t: WindTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<DragonTile> for Tile {
+const impl From<DragonTile> for Tile {
 	fn from(t: DragonTile) -> Self {
 		*t.as_ref()
 	}
@@ -682,37 +706,18 @@ impl NumberTile {
 		// and tested exhaustively in the `number_tile_convert_classified` test.
 		unsafe { core::mem::transmute::<u8, NumberSuit>(suit) }
 	}
-
-	// TODO(rustup): Inline this into `From<NumberTileClassified>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTileClassified) -> Self {
-		let NumberTileClassified { suit, number } = t;
-		// Micro-optimization: Using a `match` for every combination is safer but generates branches based on `suit`
-		// that add constant 0x24 or 0x48 instead of the multiplication by 0x24 (via `lea` / `sh*add`), so we do it manually.
-		let t = (suit as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + (number as u8 - Number::One as u8) + tn!(1m) as u8;
-		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
-		// and tested exhaustively in the `number_tile_convert_classified` test.
-		unsafe { core::mem::transmute::<u8, Self>(t) }
-	}
-
-	// TODO(rustup): Inline this into `From<ShunLowTile>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from_slt(t: ShunLowTile) -> Self {
-		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `ShunLowTile` is valid for `NumberTile`.
-		//
-		// Tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
-		unsafe { *<*const _>::cast(&raw const t) }
-	}
 }
 
-impl AsRef<Tile> for NumberTile {
+const impl AsRef<Tile> for NumberTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
 		//
-		// Tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
+		// Tested exhaustively in the `number_tile_as_ref_and_from` test.
 		unsafe { &*<*const _>::cast(self) }
 	}
 }
 
-impl CmpIgnoreRed for NumberTile {
+const impl CmpIgnoreRed for NumberTile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 2).cmp(&((*other as u8) >> 2))
 	}
@@ -734,13 +739,19 @@ impl core::fmt::Display for NumberTile {
 	}
 }
 
-impl From<NumberTileClassified> for NumberTile {
+const impl From<NumberTileClassified> for NumberTile {
 	fn from(t: NumberTileClassified) -> Self {
-		Self::const_from(t)
+		let NumberTileClassified { suit, number } = t;
+		// Micro-optimization: Using a `match` for every combination is safer but generates branches based on `suit`
+		// that add constant 0x24 or 0x48 instead of the multiplication by 0x24 (via `lea` / `sh*add`), so we do it manually.
+		let t = (suit as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + (number as u8 - Number::One as u8) + tn!(1m) as u8;
+		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
+		// and tested exhaustively in the `number_tile_convert_classified` test.
+		unsafe { core::mem::transmute::<u8, Self>(t) }
 	}
 }
 
-impl From<ShunLowTile> for NumberTile {
+const impl From<ShunLowTile> for NumberTile {
 	fn from(t: ShunLowTile) -> Self {
 		*AsRef::as_ref(&t)
 	}
@@ -755,11 +766,11 @@ impl core::str::FromStr for NumberTile {
 	}
 }
 
-impl TryFrom<Tile> for NumberTile {
+const impl TryFrom<Tile> for NumberTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
-		if t >= t!(1m) && t <= t!(9s) {
+		if (t!(1m)..=t!(9s)).contains(&t) {
 			// SAFETY: Lines up with the explicit values given to the `Tile` and `NumberTile` variants,
 			// and tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
 			let t = unsafe { core::mem::transmute::<u8, Self>(t as u8) };
@@ -825,7 +836,7 @@ impl KanKouToiTile {
 	/// Construct a toitsu representative using the given four tiles.
 	///
 	/// Returns `Some` if the tiles form a valid toitsu, `None` otherwise.
-	pub fn toi(t1: Tile, t2: Tile) -> Option<Self> {
+	pub const fn toi(t1: Tile, t2: Tile) -> Option<Self> {
 		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if t1.eq_ignore_red(&t2) {
 			let num_red_fives =
@@ -858,7 +869,7 @@ impl KanKouToiTile {
 	/// the returned array will be `t![5m, 5m, 5m, 0m]`.
 	///
 	/// If `N < .num_red_fives()`, there is clearly a mismatch, but this function has the defined behavior of returning all red tiles in this case.
-	pub fn tiles<const N: usize>(self) -> [Tile; N] {
+	pub const fn tiles<const N: usize>(self) -> [Tile; N] {
 		let tile = self.tile();
 		let mut result = [tile; N];
 		let num_red_fives = usize::from(self.num_red_fives());
@@ -866,7 +877,12 @@ impl KanKouToiTile {
 			let tile_red = tile.make_red();
 			let tile_red = unsafe { tile_red.unwrap_unchecked() };
 			let result = &mut result[N.saturating_sub(num_red_fives)..];
-			result.fill(tile_red);
+			// TODO(rustup): This uses an indexed `while` loop instead of `result.fill(tile_red)` so that it can be `const fn`.
+			let mut i = 0;
+			while i < result.len() {
+				result[i] = tile_red;
+				i += 1;
+			}
 		}
 		result
 	}
@@ -889,7 +905,7 @@ impl KanKouToiTile {
 	}
 }
 
-impl CmpIgnoreRed for KanKouToiTile {
+const impl CmpIgnoreRed for KanKouToiTile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 2).cmp(&((*other as u8) >> 2))
 	}
@@ -901,7 +917,7 @@ impl CmpIgnoreRed for KanKouToiTile {
 
 impl ShunLowTile {
 	pub const fn number(self) -> ShunLowNumber {
-		let number = NumberTile::const_from_slt(self).number();
+		let number = NumberTile::from(self).number();
 		let number = number as u8;
 		unsafe { core::mem::transmute::<u8, ShunLowNumber>(number) }
 	}
@@ -916,7 +932,7 @@ impl ShunLowTile {
 	}
 }
 
-impl AsRef<Tile> for ShunLowTile {
+const impl AsRef<Tile> for ShunLowTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `ShunLowTile` is valid for `Tile`.
 		//
@@ -925,7 +941,7 @@ impl AsRef<Tile> for ShunLowTile {
 	}
 }
 
-impl AsRef<NumberTile> for ShunLowTile {
+const impl AsRef<NumberTile> for ShunLowTile {
 	fn as_ref(&self) -> &NumberTile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `ShunLowTile` is valid for `Tile`.
 		//
@@ -934,7 +950,7 @@ impl AsRef<NumberTile> for ShunLowTile {
 	}
 }
 
-impl CmpIgnoreRed for ShunLowTile {
+const impl CmpIgnoreRed for ShunLowTile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 2).cmp(&((*other as u8) >> 2))
 	}
@@ -956,7 +972,7 @@ impl core::fmt::Display for ShunLowTile {
 	}
 }
 
-impl TryFrom<NumberTile> for ShunLowTile {
+const impl TryFrom<NumberTile> for ShunLowTile {
 	type Error = ();
 
 	fn try_from(t: NumberTile) -> Result<Self, Self::Error> {
@@ -964,7 +980,7 @@ impl TryFrom<NumberTile> for ShunLowTile {
 	}
 }
 
-impl TryFrom<Tile> for ShunLowTile {
+const impl TryFrom<Tile> for ShunLowTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -992,7 +1008,8 @@ impl ShunLowTileAndHasFiveRed {
 	/// Construct a `ShunLowTileAndHasFiveRed` using the given three tiles.
 	///
 	/// Returns `Some` if the three tiles form a valid shun, `None` otherwise.
-	pub fn new(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn new(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if is_shun(t1, t2, t3) {
 			let has_five_red = (t1 as u8 & 0b1) | (t2 as u8 & 0b1) | (t3 as u8 & 0b1);
 			let result = t1 as u8 | has_five_red;
@@ -1013,7 +1030,7 @@ impl ShunLowTileAndHasFiveRed {
 		unsafe { core::mem::transmute::<u8, ShunLowTile>(result) }
 	}
 
-	pub(crate) fn shun(self) -> (ShunLowTile, NumberTile, NumberTile) {
+	pub(crate) const fn shun(self) -> (ShunLowTile, NumberTile, NumberTile) {
 		// SAFETY: Lines up with the explicit values given to the `ShunLowTile` and `NumberTile` variants,
 		// and tested exhaustively in the `shun` test.
 
@@ -1035,7 +1052,7 @@ impl ShunLowTileAndHasFiveRed {
 	}
 }
 
-impl From<ShunLowTile> for ShunLowTileAndHasFiveRed {
+const impl From<ShunLowTile> for ShunLowTileAndHasFiveRed {
 	fn from(t: ShunLowTile) -> Self {
 		unsafe { core::mem::transmute::<ShunLowTile, Self>(t) }
 	}
@@ -1047,7 +1064,8 @@ impl WindTile {
 	/// This takes `u8` so that `ShunLowTileAndHasFiveRed` values can be passed in as-is instead of needing to `.remove_red()` them into a valid `Tile` first.
 	///
 	/// However if `t` is in the range of `(t!(E) as u8)..=(t!(N) as u8)` then `t` must have a value corresponding to a `WindTile`.
-	pub(crate) unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+	pub(crate) const unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if ((t!(E) as u8)..=(t!(N) as u8)).contains(&t) {
 			// SAFETY: Lines up with the explicit values given to the `Tile` and `WindTile` variants,
 			// and tested exhaustively in the `wind_tile_as_ref_and_from` test.
@@ -1060,7 +1078,7 @@ impl WindTile {
 	}
 }
 
-impl AsRef<Tile> for WindTile {
+const impl AsRef<Tile> for WindTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `WindTile` is valid for `Tile`.
 		//
@@ -1090,7 +1108,7 @@ impl core::str::FromStr for WindTile {
 	}
 }
 
-impl TryFrom<Tile> for WindTile {
+const impl TryFrom<Tile> for WindTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -1105,7 +1123,8 @@ impl DragonTile {
 	/// This takes `u8` so that `ShunLowTileAndHasFiveRed` values can be passed in as-is instead of needing to `.remove_red()` them into a valid `Tile` first.
 	///
 	/// However if `t` is in the range of `(t!(Wh) as u8)..=(t!(R) as u8)` then `t` must have a value corresponding to a `DragonTile`.
-	pub(crate) unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+	pub(crate) const unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if ((t!(Wh) as u8)..=(t!(R) as u8)).contains(&t) {
 			// SAFETY: Lines up with the explicit values given to the `Tile` and `DragonTile` variants,
 			// and tested exhaustively in the `dragon_tile_as_ref_and_from` test.
@@ -1118,7 +1137,7 @@ impl DragonTile {
 	}
 }
 
-impl AsRef<Tile> for DragonTile {
+const impl AsRef<Tile> for DragonTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `DragonTile` is valid for `Tile`.
 		//
@@ -1148,7 +1167,7 @@ impl core::str::FromStr for DragonTile {
 	}
 }
 
-impl TryFrom<Tile> for DragonTile {
+const impl TryFrom<Tile> for DragonTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -1163,7 +1182,7 @@ impl core::fmt::Display for NumberTileClassified {
 	}
 }
 
-impl From<NumberTile> for NumberTileClassified {
+const impl From<NumberTile> for NumberTileClassified {
 	fn from(t: NumberTile) -> Self {
 		Self { suit: t.suit(), number: t.number() }
 	}
@@ -1190,7 +1209,7 @@ impl Number {
 	}
 }
 
-impl CmpIgnoreRed for Number {
+const impl CmpIgnoreRed for Number {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 2).cmp(&((*other as u8) >> 2))
 	}
@@ -1215,14 +1234,14 @@ impl core::fmt::Display for Number {
 	}
 }
 
-impl From<ShunLowNumber> for Number {
+const impl From<ShunLowNumber> for Number {
 	fn from(n: ShunLowNumber) -> Self {
 		unsafe { core::mem::transmute::<u8, Self>(n as u8) }
 	}
 }
 
 const fn eq_ignore_red<const N: usize>(a: &[u8; N], b: &[u8; N]) -> bool {
-	// This uses an indexed `while` loop instead of `a.iter().zip(b).fold(...)` so that it can be `const fn`
+	// TODO(rustup): This uses an indexed `while` loop instead of `a.iter().zip(b).fold(...)` so that it can be `const fn`.
 	let mut eq = 0;
 	let mut i = 0;
 	while i < a.len() {
@@ -1246,6 +1265,7 @@ const fn is_shun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> bool {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 

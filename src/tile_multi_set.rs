@@ -12,7 +12,7 @@ use generic_array::{
 use crate::{
 	GameType,
 	NumberSuit, NumberTile,
-	Tile, Tile34Set,
+	Tile, Tile27, Tile34, Tile34Set, Tile37,
 };
 
 // Every count is stored as a 3-bit value 0..=4, which makes operations like `TileMultiSetIntoIter::next()`'s search
@@ -27,396 +27,186 @@ use crate::{
 // Lastly, the type is parameterized by the functions that map `Tile` to offset and vice versa.
 // This allows the same implementation to be used for `Tile27MultiSet`, `Tile34MultiSet` and `Tile37MultiSet`.
 
-macro_rules! make_tmultiset {
-	(
-		$( $(#[ $meta:meta ])* pub type $tmultiset:ident = TileMultiSet<$tile:ty, $n:literal, $num_tiles_per_number_suit:literal, $has_honor_suit:literal, $other_five:ident, $tile_to_offset:ident, $tile_to_max:ident, $offset_to_tile:ident, IntoIter = $tmultiset_intoiter:ident>; )*
-	) => {
-		$(
-			$(#[ $meta ])*
-			#[derive(Clone, Default, Eq)]
-			pub struct $tmultiset {
-				counts: [u32; 4],
-				totals: [u8; 4],
+/// A multiset specialized to hold [`Tile`]s or [`NumberTile`] in a compact non-allocating representation.
+///
+/// See the pre-defined aliases [`Tile27MultiSet`], [`Tile34MultiSet`] and [`Tile37MultiSet`].
+pub struct TileMultiSet<TKind> {
+	counts: [u32; 4],
+	totals: [u8; 4],
+	kind: core::marker::PhantomData<TKind>,
+}
+
+/// Parameter for [`TileMultiSet`] to control what type of tiles it holds.
+pub const trait Kind {
+	type Tile: Copy + core::fmt::Debug + 'static;
+	const N: usize;
+	const NUM_TILES_PER_NUMBER_SUIT: usize;
+	const HAS_HONOR_SUIT: bool;
+
+	fn other_five(tile: Self::Tile) -> Option<Self::Tile>;
+
+	fn tile_to_offset(tile: Self::Tile) -> u8;
+
+	fn tile_to_max(tile: Self::Tile) -> u8;
+
+	/// # Safety
+	///
+	/// `offset` must be a valid value that corresponds to a `Tile`.
+	unsafe fn offset_to_tile(offset: u8) -> Self::Tile;
+}
+
+impl<TKind> TileMultiSet<TKind>
+where
+	TKind: const Kind,
+{
+	/// Returns `true` if this set is empty.
+	pub const fn is_empty(&self) -> bool {
+		u32::from_ne_bytes(self.len()) == 0
+	}
+
+	/// Returns the number of elements in each suit.
+	pub const fn len(&self) -> [u8; 4] {
+		self.totals
+	}
+
+	/// Returns `true` if this set contains the given tile.
+	pub const fn contains(&self, tile: TKind::Tile) -> bool {
+		self.get(tile) != 0
+	}
+
+	/// Gets the number of occurences of the given tile in this set.
+	pub const fn get(&self, tile: TKind::Tile) -> u8 {
+		self.tile_to_count_ref(tile)
+	}
+
+	/// Inserts the given tile into this set.
+	///
+	/// Returns `false` when inserting more of a tile than should exist.
+	pub const fn insert(&mut self, tile: TKind::Tile) -> bool {
+		self.insert_many(tile, 1)
+	}
+
+	/// Inserts the given tile into this set.
+	///
+	/// Returns `false` when inserting more of a tile than should exist.
+	pub const fn insert_many(&mut self, tile: TKind::Tile, additional: u8) -> bool {
+		// TODO(rustup): Use `Option::map_or_default()` when that becomes `const fn`.
+		let other_count = match TKind::other_five(tile) {
+			Some(tile) => self.tile_to_count_ref(tile),
+			None => 0,
+		};
+		let (mut count, suit) = self.tile_to_count_suit_mut(tile);
+		let max = TKind::tile_to_max(tile);
+		let new_count = count.get().saturating_add(additional);
+		if new_count <= max && new_count.saturating_add(other_count) <= 4 {
+			count.set(new_count);
+			self.totals[usize::from(suit)] += additional;
+			true
+		}
+		else {
+			false
+		}
+	}
+
+	/// Inserts all tiles from the given iterator into this set.
+	///
+	/// # Errors
+	///
+	/// Returns `Err()` when inserting more of a tile than should exist.
+	pub fn try_extend(&mut self, iter: impl IntoIterator<Item = TKind::Tile>) -> Result<(), TKind::Tile> {
+		for tile in iter {
+			if !self.insert(tile) {
+				return Err(tile);
 			}
+		}
+		Ok(())
+	}
 
-			impl $tmultiset {
-				pub const fn new() -> Self {
-					Self {
-						counts: [0; 4],
-						totals: [0; 4],
+	/// Removes the given tile from this set.
+	///
+	/// Returns `true` if this tile existed in the set, `false` otherwise.
+	pub const fn remove(&mut self, tile: TKind::Tile) -> bool {
+		let (mut count, suit) = self.tile_to_count_suit_mut(tile);
+		if let Some(new_count) = count.get().checked_sub(1) {
+			count.set(new_count);
+			self.totals[usize::from(suit)] -= 1;
+			true
+		}
+		else {
+			false
+		}
+	}
+
+	/// Removes all instances of the given tile from this set.
+	///
+	/// Returns the number of instances removed.
+	pub const fn remove_all(&mut self, tile: TKind::Tile) -> u8 {
+		let (mut count, suit) = self.tile_to_count_suit_mut(tile);
+		let result = count.get();
+		count.set(0);
+		self.totals[usize::from(suit)] -= result;
+		result
+	}
+
+	pub fn is_subset_of(&self, other: &Self) -> bool {
+		for i in 0..(3 + usize::from(TKind::HAS_HONOR_SUIT)) {
+			match self.totals[i].cmp(&other.totals[i]) {
+				core::cmp::Ordering::Less => {
+					fn split_counts<const N: usize>(counts: u32) -> core::simd::Simd<u32, N> {
+						let counts = core::simd::Simd::splat(counts);
+						#[expect(clippy::cast_possible_truncation)]
+						let counts = counts >> core::simd::Simd::from_array(core::array::from_fn(|i| i as u32 * 3));
+						counts & core::simd::Simd::splat(0b111)
 					}
-				}
 
-				/// Returns `true` if this set is empty.
-				pub const fn is_empty(&self) -> bool {
-					u32::from_ne_bytes(self.len()) == 0
-				}
-
-				/// Returns the number of elements in each suit.
-				pub const fn len(&self) -> [u8; 4] {
-					self.totals
-				}
-
-				/// Returns `true` if this set contains the given tile.
-				pub const fn contains(&self, tile: $tile) -> bool {
-					self.get(tile) != 0
-				}
-
-				/// Gets the number of occurences of the given tile in this set.
-				pub const fn get(&self, tile: $tile) -> u8 {
-					self.tile_to_count_ref(tile)
-				}
-
-				/// Inserts the given tile into this set.
-				///
-				/// Returns `false` when inserting more of a tile than should exist.
-				pub const fn insert(&mut self, tile: $tile) -> bool {
-					self.insert_many(tile, 1)
-				}
-
-				/// Inserts the given tile into this set.
-				///
-				/// Returns `false` when inserting more of a tile than should exist.
-				pub const fn insert_many(&mut self, tile: $tile, additional: u8) -> bool {
-					// TODO(rustup): Use `Option::map_or_default()` when that becomes `const fn`.
-					let other_count = match $other_five(tile) {
-						Some(tile) => self.tile_to_count_ref(tile),
-						None => 0,
-					};
-					let (mut count, suit) = self.tile_to_count_suit_mut(tile);
-					let max = $tile_to_max(tile);
-					let new_count = count.get().saturating_add(additional);
-					if new_count <= max && new_count.saturating_add(other_count) <= 4 {
-						count.set(new_count);
-						self.totals[suit as usize] += additional;
-						true
-					}
-					else {
-						false
-					}
-				}
-
-				/// Inserts all tiles from the given iterator into this set.
-				///
-				/// # Errors
-				///
-				/// Returns `Err()` when inserting more of a tile than should exist.
-				pub fn try_extend(&mut self, iter: impl IntoIterator<Item = $tile>) -> Result<(), $tile> {
-					for tile in iter {
-						if !self.insert(tile) {
-							return Err(tile);
-						}
-					}
-					Ok(())
-				}
-
-				/// Removes the given tile from this set.
-				///
-				/// Returns `true` if this tile existed in the set, `false` otherwise.
-				pub const fn remove(&mut self, tile: $tile) -> bool {
-					let (mut count, suit) = self.tile_to_count_suit_mut(tile);
-					if let Some(new_count) = count.get().checked_sub(1) {
-						count.set(new_count);
-						self.totals[suit as usize] -= 1;
-						true
-					}
-					else {
-						false
-					}
-				}
-
-				/// Removes all instances of the given tile from this set.
-				///
-				/// Returns the number of instances removed.
-				pub const fn remove_all(&mut self, tile: $tile) -> u8 {
-					let (mut count, suit) = self.tile_to_count_suit_mut(tile);
-					let result = count.get();
-					count.set(0);
-					self.totals[suit as usize] -= result;
-					result
-				}
-
-				pub fn is_subset_of(&self, other: &Self) -> bool {
-					for i in 0..(3 + usize::from($has_honor_suit)) {
-						match self.totals[i].cmp(&other.totals[i]) {
-							core::cmp::Ordering::Less =>
-								for i in 0..4 {
-									let self_counts = self.counts[i];
-									let other_counts = other.counts[i];
-									for offset in 0..(if i < 3 { $num_tiles_per_number_suit } else { 7 }) {
-										let offset = offset * 3;
-										let self_count = (self_counts >> offset) & 0b111;
-										let other_count = (other_counts >> offset) & 0b111;
-										if self_count > other_count {
-											core::hint::cold_path();
-											return false;
-										}
-									}
-								},
-
-							core::cmp::Ordering::Equal => {
-								core::hint::cold_path();
-								if self.counts[i] != other.counts[i] {
+					if i < 3 {
+						const { assert!((9..=10).contains(&TKind::NUM_TILES_PER_NUMBER_SUIT)); }
+						match TKind::NUM_TILES_PER_NUMBER_SUIT {
+							9 => {
+								let self_counts = split_counts::<9>(self.counts[i]);
+								let other_counts = split_counts(other.counts[i]);
+								if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
 									core::hint::cold_path();
 									return false;
 								}
 							},
-
-							core::cmp::Ordering::Greater => {
-								core::hint::cold_path();
-								return false;
+							10 => {
+								let self_counts = split_counts::<10>(self.counts[i]);
+								let other_counts = split_counts(other.counts[i]);
+								if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
+									core::hint::cold_path();
+									return false;
+								}
 							},
+							_ => unsafe { core::hint::unreachable_unchecked(); },
 						}
 					}
-
-					true
-				}
-				const fn tile_to_count_ref(&self, tile: $tile) -> u8 {
-					let offset = $tile_to_offset(tile);
-					let counts = self.counts[(offset >> 5) as usize];
-					let offset = offset & ((0b1 << 5) - 1);
-					let count = (counts >> offset) & 0o7;
-					count as u8
-				}
-
-				const fn tile_to_count_suit_mut(&mut self, tile: $tile) -> (U3Mut<'_>, u8) {
-					let offset = $tile_to_offset(tile);
-					let suit = offset >> 5;
-					let counts = &mut self.counts[suit as usize];
-					let offset = offset & ((0b1 << 5) - 1);
-					(U3Mut { counts, offset }, suit)
-				}
-			}
-
-			impl core::fmt::Debug for $tmultiset {
-				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-					f.debug_map().entries(self.clone()).finish()
-				}
-			}
-
-			impl FromIterator<($tile, u8)> for $tmultiset {
-				fn from_iter<T>(iter: T) -> Self
-				where
-					T: IntoIterator<Item = ($tile, u8)>,
-				{
-					let mut result = Self::new();
-					for (tile, additional) in iter {
-						_ = result.insert_many(tile, additional);
-					}
-					result
-				}
-			}
-
-			impl IntoIterator for $tmultiset {
-				type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
-				type IntoIter = $tmultiset_intoiter;
-
-				fn into_iter(self) -> Self::IntoIter {
-					$tmultiset_intoiter {
-						counts: self.counts,
-					}
-				}
-			}
-
-			impl PartialEq for $tmultiset {
-				fn eq(&self, other: &Self) -> bool {
-					self.counts == other.counts
-				}
-			}
-
-			#[doc = concat!("An [`Iterator`] of all tiles in a [`", stringify!($tmultiset), "`].")]
-			#[derive(Clone)]
-			pub struct $tmultiset_intoiter {
-				counts: [u32; 4],
-			}
-
-			impl $tmultiset_intoiter {
-				fn next_inner(&mut self, offset: u32) -> ($tile, core::num::NonZero<u8>) {
-					#[expect(clippy::cast_possible_truncation)]
-					let offset = offset as u8;
-					let tile = $offset_to_tile(offset);
-					let counts = &mut self.counts[usize::from(offset >> 5)];
-					let offset = offset & ((0b1 << 5) - 1);
-					let offset = (offset / 3) * 3;
-					let mut count = U3Mut { counts, offset };
-					let count_ = count.get();
-					count.set(0);
-					let count_ = unsafe { core::num::NonZero::new_unchecked(count_) };
-					(tile, count_)
-				}
-			}
-
-			impl core::fmt::Debug for $tmultiset_intoiter {
-				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-					f.debug_struct(stringify!($tmultiset_intoiter)).finish_non_exhaustive()
-				}
-			}
-
-			impl Iterator for $tmultiset_intoiter {
-				type Item = ($tile, core::num::NonZero<u8>);
-
-				fn next(&mut self) -> Option<Self::Item> {
-					let lowest_one_i = self.counts.iter().position(|&counts| counts != 0)?;
-					let counts = self.counts[lowest_one_i];
-					#[expect(clippy::cast_possible_truncation)]
-					let offset = counts.trailing_zeros() | ((lowest_one_i as u32) << 5);
-					Some(self.next_inner(offset))
-				}
-
-				fn size_hint(&self) -> (usize, Option<usize>) {
-					if (self.counts[0] | self.counts[1] | self.counts[2] | self.counts[3]) == 0 {
-						(0, Some(0))
-					}
 					else {
-						(1, Some($n))
+						let self_counts = split_counts::<7>(self.counts[i]);
+						let other_counts = split_counts(other.counts[i]);
+						if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
+							return false;
+						}
 					}
-				}
+				},
+
+				core::cmp::Ordering::Equal => {
+					core::hint::cold_path();
+					if self.counts[i] != other.counts[i] {
+						core::hint::cold_path();
+						return false;
+					}
+				},
+
+				core::cmp::Ordering::Greater => {
+					core::hint::cold_path();
+					return false;
+				},
 			}
-
-			impl DoubleEndedIterator for $tmultiset_intoiter {
-				fn next_back(&mut self) -> Option<Self::Item> {
-					let highest_one_i = self.counts.iter().rposition(|&counts| counts != 0)?;
-					let counts = self.counts[highest_one_i];
-					#[expect(clippy::cast_possible_truncation)]
-					let offset = counts.trailing_zeros() | ((highest_one_i as u32) << 5);
-					Some(self.next_inner(offset))
-				}
-			}
-
-			impl core::iter::FusedIterator for $tmultiset_intoiter {}
-		)*
-	};
-}
-
-make_tmultiset! {
-	/// A multiset specialized to hold [`NumberTile`] in a compact non-allocating representation.
-	///
-	/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
-	/// in its implementation of [`get`](Self::get), [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
-	pub type Tile27MultiSet = TileMultiSet<NumberTile, 27, 9, false, number_tile_other_five, number_tile_to_offset, number_tile_to_max, offset_to_number_tile, IntoIter = Tile27MultiSetIntoIter>;
-
-	/// A multiset specialized to hold [`Tile`]s in a compact non-allocating representation.
-	///
-	/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
-	/// in its implementation of [`get`](Self::get), [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
-	pub type Tile34MultiSet = TileMultiSet<Tile, 34, 9, true, tile34_other_five, tile34_to_offset, tile34_to_max, offset_to_tile34, IntoIter = Tile34MultiSetIntoIter>;
-
-	/// A multiset specialized to hold [`Tile`]s in a compact non-allocating representation.
-	///
-	/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as distinct tiles
-	/// in its implementation of [`get`](Self::get), [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
-	pub type Tile37MultiSet = TileMultiSet<Tile, 37, 10, true, tile37_other_five, tile37_to_offset, tile37_to_max, offset_to_tile37, IntoIter = Tile37MultiSetIntoIter>;
-}
-
-assert_size_of!(Tile27MultiSet, 20);
-
-//          | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
-// [m] 00000_###_###_###_###_###_###_###_###_###
-// [p] 00000_###_###_###_###_###_###_###_###_###
-// [s] 00000_###_###_###_###_###_###_###_###_###
-// [z] 00000_000_000_000_000_000_000_000_000_000
-
-const fn number_tile_other_five(_tile: NumberTile) -> Option<NumberTile> {
-	None
-}
-
-const fn number_tile_to_offset(tile: NumberTile) -> u8 {
-	Tile::offset(Tile::const_from(tile)) * 3 + 5 * (2 - ((tile as u8) < (tn!(1p) as u8)) as u8 - ((tile as u8) < (tn!(1s) as u8)) as u8)
-}
-
-const fn number_tile_to_max(_tile: NumberTile) -> u8 {
-	4
-}
-
-const fn offset_to_number_tile(offset: u8) -> NumberTile {
-	let offset = offset - (offset >> 5) * 5;
-	let offset = offset / 3;
-	let tile = (offset << 2) + tn!(1m) as u8;
-	unsafe { core::mem::transmute::<u8, NumberTile>(tile) }
-}
-
-assert_size_of!(Tile34MultiSet, 20);
-
-//          | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
-// [m] 00000_###_###_###_###_###_###_###_###_###
-// [p] 00000_###_###_###_###_###_###_###_###_###
-// [s] 00000_###_###_###_###_###_###_###_###_###
-// [z] 00000_000_000_###_###_###_###_###_###_###
-
-const fn tile34_other_five(_tile: Tile) -> Option<Tile> {
-	None
-}
-
-const fn tile34_to_offset(tile: Tile) -> u8 {
-	Tile::offset(tile) * 3 + 5 * (3 - ((tile as u8) < (t!(1p) as u8)) as u8 - ((tile as u8) < (t!(1s) as u8)) as u8 - ((tile as u8) < (t!(E) as u8)) as u8)
-}
-
-const fn tile34_to_max(_tile: Tile) -> u8 {
-	4
-}
-
-const fn offset_to_tile34(offset: u8) -> Tile {
-	let offset = offset - (offset >> 5) * 5;
-	let offset = offset / 3;
-	let tile = (offset << 2) + t!(1m) as u8;
-	unsafe { core::mem::transmute::<u8, Tile>(tile) }
-}
-
-assert_size_of!(Tile37MultiSet, 20);
-
-//       | 9 | 8 | 7 | 6 | 0 | 5 | 4 | 3 | 2 | 1 |
-// [m] 00_###_###_###_###_###_###_###_###_###_###
-// [p] 00_###_###_###_###_###_###_###_###_###_###
-// [s] 00_###_###_###_###_###_###_###_###_###_###
-//
-//                   | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
-// [z] 00_000_000_000_###_###_###_###_###_###_###
-
-const fn tile37_other_five(tile: Tile) -> Option<Tile> {
-		if tile.is_red() {
-			Some(tile.remove_red())
-		} else {
-			tile.make_red()
 		}
-}
 
-const fn tile37_to_offset(tile: Tile) -> u8 {
-	let offset = Tile::offset(tile) + 3 - ((tile as u8) < (t!(0m) as u8)) as u8 - ((tile as u8) < (t!(0p) as u8)) as u8 - ((tile as u8) < (t!(0s) as u8)) as u8;
-	let offset = offset * 3;
-	let offset = offset + 2 * (3 - ((tile as u8) < (t!(1p) as u8)) as u8 - ((tile as u8) < (t!(1s) as u8)) as u8 - ((tile as u8) < (t!(E) as u8)) as u8);
-	offset
-}
-
-const fn tile37_to_max(tile: Tile) -> u8 {
-	4 - (tile.is_red() as u8)
-}
-
-const fn offset_to_tile37(offset: u8) -> Tile {
-	let offset = offset - (offset >> 5) * 2;
-	let offset = offset / 3;
-	let tile = offset + (offset < 5) as u8 + (offset < 15) as u8 + (offset < 25) as u8 - 3;
-	let tile = ((tile << 2) + t!(1m) as u8) | (((((0b1_u64 << 5) | (0b1_u64 << 15) | (0b1_u64 << 25)) >> offset) & 0b1) as u8);
-	unsafe { core::mem::transmute::<u8, Tile>(tile) }
-}
-
-struct U3Mut<'a> {
-	counts: &'a mut u32,
-	offset: u8,
-}
-
-impl U3Mut<'_> {
-	const fn get(&self) -> u8 {
-		let count = (*self.counts >> self.offset) & 0o7;
-		count as u8
+		true
 	}
-
-	const fn set(&mut self, value: u8) {
-		*self.counts = *self.counts & !(0o7 << self.offset) | (((value & 0o7) as u32) << self.offset);
-	}
-}
-
-impl Tile34MultiSet {
-	pub(crate) const TERMINALS_AND_HONORS: Self = t34multiset![1m, 9m, 1p, 9p, 1s, 9s, E, S, W, N, Wh, G, R];
 
 	pub(crate) const fn man(&self) -> (u32, u8) {
 		(self.counts[0], self.totals[0])
@@ -438,18 +228,351 @@ impl Tile34MultiSet {
 		&self.counts
 	}
 
+	pub(crate) const fn to_suits_simd(&self) -> core::simd::Simd<u32, 4> {
+		core::simd::Simd::from_array(self.counts)
+	}
+
+	const fn tile_to_count_ref(&self, tile: TKind::Tile) -> u8 {
+		let offset = TKind::tile_to_offset(tile);
+		let counts = self.counts[usize::from(offset >> 5)];
+		let offset = offset & ((0b1 << 5) - 1);
+		let count = (counts >> offset) & 0o7;
+		count as u8
+	}
+
+	const fn tile_to_count_suit_mut(&mut self, tile: TKind::Tile) -> (U3Mut<'_>, u8) {
+		let offset = TKind::tile_to_offset(tile);
+		let suit = offset >> 5;
+		let counts = &mut self.counts[usize::from(suit)];
+		let offset = offset & ((0b1 << 5) - 1);
+		(U3Mut { counts, offset }, suit)
+	}
+}
+
+const impl<TKind> Clone for TileMultiSet<TKind> {
+	fn clone(&self) -> Self {
+		Self {
+			counts: self.counts,
+			totals: self.totals,
+			kind: self.kind,
+		}
+	}
+}
+
+impl<TKind> core::fmt::Debug for TileMultiSet<TKind>
+where
+	TKind: Kind,
+	Self: Clone + IntoIterator<Item = (TKind::Tile, core::num::NonZero<u8>)>,
+{
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_map().entries(self.clone()).finish()
+	}
+}
+
+const impl<TKind> Default for TileMultiSet<TKind> {
+	fn default() -> Self {
+		Self {
+			counts: [0; 4],
+			totals: [0; 4],
+			kind: Default::default(),
+		}
+	}
+}
+
+impl<TKind> FromIterator<(TKind::Tile, u8)> for TileMultiSet<TKind>
+where
+	TKind: const Kind,
+{
+	fn from_iter<T>(iter: T) -> Self
+	where
+		T: IntoIterator<Item = (TKind::Tile, u8)>,
+	{
+		let mut result = Self::default();
+		for (tile, additional) in iter {
+			_ = result.insert_many(tile, additional);
+		}
+		result
+	}
+}
+
+impl<TKind> IntoIterator for TileMultiSet<TKind>
+where
+	TileMultiSetIntoIter<TKind>: Iterator,
+{
+	type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
+	type IntoIter = TileMultiSetIntoIter<TKind>;
+
+	fn into_iter(self) -> Self::IntoIter {
+		TileMultiSetIntoIter {
+			counts: self.counts,
+			kind: self.kind,
+		}
+	}
+}
+
+const impl<TKind> PartialEq for TileMultiSet<TKind> {
+	fn eq(&self, other: &Self) -> bool {
+		self.counts == other.counts
+	}
+}
+
+const impl<TKind> Eq for TileMultiSet<TKind> {}
+
+/// An [`Iterator`] of all tiles in a [`TileMultiSet`].
+pub struct TileMultiSetIntoIter<TKind> {
+	counts: [u32; 4],
+	kind: core::marker::PhantomData<TKind>,
+}
+
+impl<TKind> TileMultiSetIntoIter<TKind>
+where
+	TKind: Kind,
+{
+	fn next_inner(&mut self, offset: u32) -> (TKind::Tile, core::num::NonZero<u8>) {
+		#[expect(clippy::cast_possible_truncation)]
+		let offset = offset as u8;
+		unsafe { core::hint::assert_unchecked(offset <= 0b1111111); }
+		let tile = unsafe { TKind::offset_to_tile(offset) };
+		let counts = &mut self.counts[usize::from(offset >> 5)];
+		let offset = offset & ((0b1 << 5) - 1);
+		let offset = (offset / 3) * 3;
+		let mut count = U3Mut { counts, offset };
+		let count_ = count.get();
+		count.set(0);
+		let count_ = unsafe { core::num::NonZero::new_unchecked(count_) };
+		(tile, count_)
+	}
+}
+
+const impl<TKind> Clone for TileMultiSetIntoIter<TKind> {
+	fn clone(&self) -> Self {
+		Self {
+			counts: self.counts,
+			kind: self.kind,
+		}
+	}
+}
+
+impl<TKind> core::fmt::Debug for TileMultiSetIntoIter<TKind> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("TileMultiSetIntoIter").finish_non_exhaustive()
+	}
+}
+
+impl<TKind> Iterator for TileMultiSetIntoIter<TKind>
+where
+	TKind: Kind,
+{
+	type Item = (TKind::Tile, core::num::NonZero<u8>);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let counts = core::simd::Simd::from_array(self.counts);
+		let lowest_one_i = core::simd::cmp::SimdPartialEq::simd_ne(counts, core::simd::Simd::splat(0));
+		let lowest_one_i = lowest_one_i.first_set()?;
+		// Micro-optimization: `first_set` asserts this bound already, except on the x86_64 specialized path,
+		// so on x86_64 rustc ends up emitting a bounds check unless we assert it ourselves.
+		unsafe { core::hint::assert_unchecked(lowest_one_i < self.counts.len()); }
+		let counts = self.counts[lowest_one_i];
+		#[expect(clippy::cast_possible_truncation)]
+		let offset = counts.trailing_zeros() | ((lowest_one_i as u32) << 5);
+		Some(self.next_inner(offset))
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		if core::simd::num::SimdUint::reduce_or(core::simd::Simd::from_array(self.counts)) == 0 {
+			(0, Some(0))
+		}
+		else {
+			(1, Some(TKind::N))
+		}
+	}
+}
+
+impl<TKind> DoubleEndedIterator for TileMultiSetIntoIter<TKind>
+where
+	TKind: Kind,
+{
+	fn next_back(&mut self) -> Option<Self::Item> {
+		let counts = core::simd::Simd::from_array(self.counts);
+		let highest_one_i = core::simd::cmp::SimdPartialEq::simd_ne(counts, core::simd::Simd::splat(0));
+		let highest_one_i = highest_one_i.last_set()?;
+		// Micro-optimization: `last_set` asserts this bound already, except on the x86_64 specialized path,
+		// so on x86_64 rustc ends up emitting a bounds check unless we assert it ourselves.
+		unsafe { core::hint::assert_unchecked(highest_one_i < self.counts.len()); }
+		let counts = self.counts[highest_one_i];
+		#[expect(clippy::cast_possible_truncation)]
+		let offset = counts.trailing_zeros() | ((highest_one_i as u32) << 5);
+		Some(self.next_inner(offset))
+	}
+}
+
+impl<TKind> core::iter::FusedIterator for TileMultiSetIntoIter<TKind>
+where
+	Self: Iterator,
+{}
+
+/// A multiset specialized to hold [`NumberTile`]s in a compact non-allocating representation.
+///
+/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
+/// in its implementation of [`get`](Self::get), [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
+pub type Tile27MultiSet = TileMultiSet<Tile27>;
+/// An [`Iterator`] of all [`NumberTile`]s in a [`Tile27MultiSet`].
+pub type Tile27MultiSetIntoIter = TileMultiSetIntoIter<Tile27>;
+
+assert_size_of!(Tile27MultiSet, 20);
+
+const impl Kind for Tile27 {
+	type Tile = NumberTile;
+	const N: usize = 27;
+	const NUM_TILES_PER_NUMBER_SUIT: usize = 9;
+	const HAS_HONOR_SUIT: bool = false;
+
+	//          | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
+	// [m] 00000_###_###_###_###_###_###_###_###_###
+	// [p] 00000_###_###_###_###_###_###_###_###_###
+	// [s] 00000_###_###_###_###_###_###_###_###_###
+	// [z] 00000_000_000_000_000_000_000_000_000_000
+
+	fn other_five(_tile: Self::Tile) -> Option<Self::Tile> {
+		None
+	}
+
+	fn tile_to_offset(tile: Self::Tile) -> u8 {
+		Tile::offset(tile.into()) * 3 + 5 * (2 - u8::from(tile < tn!(1p)) - u8::from(tile < tn!(1s)))
+	}
+
+	fn tile_to_max(_tile: Self::Tile) -> u8 {
+		4
+	}
+
+	unsafe fn offset_to_tile(offset: u8) -> Self::Tile {
+		let offset = offset - (offset >> 5) * 5;
+		let offset = offset / 3;
+		let tile = (offset << 2) + tn!(1m) as u8;
+		unsafe { core::mem::transmute::<u8, NumberTile>(tile) }
+	}
+}
+
+/// A multiset specialized to hold [`Tile`]s in a compact non-allocating representation.
+///
+/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
+/// in its implementation of [`get`](Self::get), [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
+pub type Tile34MultiSet = TileMultiSet<Tile34>;
+/// An [`Iterator`] of all [`Tile`]s in a [`Tile34MultiSet`].
+pub type Tile34MultiSetIntoIter = TileMultiSetIntoIter<Tile34>;
+
+assert_size_of!(Tile34MultiSet, 20);
+
+const impl Kind for Tile34 {
+	type Tile = Tile;
+	const N: usize = 34;
+	const NUM_TILES_PER_NUMBER_SUIT: usize = 9;
+	const HAS_HONOR_SUIT: bool = true;
+
+	//          | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
+	// [m] 00000_###_###_###_###_###_###_###_###_###
+	// [p] 00000_###_###_###_###_###_###_###_###_###
+	// [s] 00000_###_###_###_###_###_###_###_###_###
+	// [z] 00000_000_000_###_###_###_###_###_###_###
+
+	fn other_five(_tile: Self::Tile) -> Option<Self::Tile> {
+		None
+	}
+
+	fn tile_to_offset(tile: Self::Tile) -> u8 {
+		Tile::offset(tile) * 3 + 5 * (3 - u8::from(tile < t!(1p)) - u8::from(tile < t!(1s)) - u8::from(tile < t!(E)))
+	}
+
+	fn tile_to_max(_tile: Self::Tile) -> u8 {
+		4
+	}
+
+	unsafe fn offset_to_tile(offset: u8) -> Self::Tile {
+		let offset = offset - (offset >> 5) * 5;
+		let offset = offset / 3;
+		let tile = (offset << 2) + t!(1m) as u8;
+		unsafe { core::mem::transmute::<u8, Tile>(tile) }
+	}
+}
+
+/// A multiset specialized to hold [`Tile`]s in a compact non-allocating representation.
+///
+/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as distinct tiles
+/// in its implementation of [`get`](Self::get), [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
+pub type Tile37MultiSet = TileMultiSet<Tile37>;
+/// An [`Iterator`] of all [`Tile`]s in a [`Tile37MultiSet`].
+pub type Tile37MultiSetIntoIter = TileMultiSetIntoIter<Tile37>;
+
+assert_size_of!(Tile37MultiSet, 20);
+
+const impl Kind for Tile37 {
+	type Tile = Tile;
+	const N: usize = 37;
+	const NUM_TILES_PER_NUMBER_SUIT: usize = 10;
+	const HAS_HONOR_SUIT: bool = true;
+
+	//       | 9 | 8 | 7 | 6 | 0 | 5 | 4 | 3 | 2 | 1 |
+	// [m] 00_###_###_###_###_###_###_###_###_###_###
+	// [p] 00_###_###_###_###_###_###_###_###_###_###
+	// [s] 00_###_###_###_###_###_###_###_###_###_###
+	//
+	//                   | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
+	// [z] 00_000_000_000_###_###_###_###_###_###_###
+
+	fn other_five(tile: Self::Tile) -> Option<Self::Tile> {
+		if tile.is_red() {
+			Some(tile.remove_red())
+		} else {
+			tile.make_red()
+		}
+	}
+
+	fn tile_to_offset(tile: Self::Tile) -> u8 {
+		let offset = Tile::offset(tile) + 3 - u8::from(tile < t!(0m)) - u8::from(tile < t!(0p)) - u8::from(tile < t!(0s));
+		let offset = offset * 3;
+		let offset = offset + 2 * (3 - u8::from(tile < t!(1p)) - u8::from(tile < t!(1s)) - u8::from(tile < t!(E)));
+		offset
+	}
+
+	fn tile_to_max(tile: Self::Tile) -> u8 {
+		4 - u8::from(tile.is_red())
+	}
+
+	unsafe fn offset_to_tile(offset: u8) -> Self::Tile {
+		let offset = offset - (offset >> 5) * 2;
+		let offset = offset / 3;
+		let tile = offset + u8::from(offset < 5) + u8::from(offset < 15) + u8::from(offset < 25) - 3;
+		let tile = ((tile << 2) + t!(1m) as u8) | (((((0b1_u64 << 5) | (0b1_u64 << 15) | (0b1_u64 << 25)) >> offset) & 0b1) as u8);
+		unsafe { core::mem::transmute::<u8, Tile>(tile) }
+	}
+}
+
+struct U3Mut<'a> {
+	counts: &'a mut u32,
+	offset: u8,
+}
+
+impl U3Mut<'_> {
+	const fn get(&self) -> u8 {
+		let count = (*self.counts >> self.offset) & 0o7;
+		count as u8
+	}
+
+	const fn set(&mut self, value: u8) {
+		*self.counts = *self.counts & !(0o7 << self.offset) | (u32::from(value & 0o7) << self.offset);
+	}
+}
+
+impl Tile34MultiSet {
+	pub(crate) const TERMINALS_AND_HONORS: Self = t34multiset![1m, 9m, 1p, 9p, 1s, 9s, E, S, W, N, Wh, G, R];
+
 	/// Treats this `Tile34MultiSet` as containing dora indicators, and returns a new `Tile34MultiSet` containing the corresponding dora.
-	pub fn indicates_dora(&self, game_type: GameType) -> Self {
+	pub const fn indicates_dora(&self, game_type: GameType) -> Self {
 		#[expect(clippy::needless_pass_by_value)]
 		const fn to_mask(set: Tile34Set) -> u128 {
-			// TODO(rustup): Replace this with `u128::from(set.present).deposit_bits(((0b1 << (3 * 34)) - 1) / 7) * 0b111` when `u128::deposit_bits` becomes stable.
-			let mut result = 0;
-			let mut i = 0;
-			while i < 34 {
-				result |= ((((set.present >> i) & 0b1) * 0b111) as u128) << (i * 3);
-				i += 1;
-			}
-			result
+			let present = u128::from(set.present);
+			let present = present.deposit_bits(0o1111111111111111111111111111111111);
+			(present << 2) | (present << 1) | present
 		}
 
 		const MASK_MAN_YONMA: u128 = to_mask(t34set![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m]);
@@ -459,7 +582,7 @@ impl Tile34MultiSet {
 		const MASK_N: u128 = to_mask(t34set![N]);
 		const MASK_R: u128 = to_mask(t34set![R]);
 
-		let Self { counts, totals } = self;
+		let Self { counts, totals, kind } = self;
 
 		let counts =
 			u128::from(counts[0]) |
@@ -483,7 +606,7 @@ impl Tile34MultiSet {
 			(counts >> 81) as u32,
 		];
 
-		let mut result = Self { counts, totals: *totals };
+		let mut result = Self { counts, totals: *totals, kind: *kind };
 
 		if matches!(game_type, GameType::Sanma) {
 			// If `self` contained 2-8m even though `game_type` is `Sanma`, we didn't map them to dora in `result`,
@@ -498,15 +621,16 @@ impl Tile34MultiSet {
 
 impl From<Tile37MultiSet> for Tile34MultiSet {
 	fn from(set: Tile37MultiSet) -> Self {
-		let Tile37MultiSet { mut counts, totals } = set;
+		let counts = set.to_suits_simd();
+		let totals = set.totals;
 
-		for count in &mut counts[..3] {
-			*count =
-				(*count        & 0o000077777) +
-				((*count >> 3) & 0o777770000);
-		}
+		let counts012 = counts.extract::<0, 3>();
+		let counts012 =
+			(counts012        & core::simd::Simd::splat(0o000077777)) +
+			((counts012 >> 3) & core::simd::Simd::splat(0o777770000));
+		let counts = counts012.resize(counts[3]).to_array();
 
-		Self { counts, totals }
+		Self { counts, totals, kind: Default::default() }
 	}
 }
 
@@ -529,30 +653,10 @@ impl Tile37MultiSet {
 	/// Set of tiles for a yonma game with no red fives.
 	pub const INVENTORY_SANMA_000: Self = Self::inventory(GameType::Sanma, [0, 0, 0]);
 
-	pub(crate) const fn man(&self) -> (u32, u8) {
-		(self.counts[0], self.totals[0])
-	}
-
-	pub(crate) const fn pin(&self) -> (u32, u8) {
-		(self.counts[1], self.totals[1])
-	}
-
-	pub(crate) const fn sou(&self) -> (u32, u8) {
-		(self.counts[2], self.totals[2])
-	}
-
-	pub(crate) const fn ji(&self) -> (u32, u8) {
-		(self.counts[3], self.totals[3])
-	}
-
-	pub(crate) const fn to_suits(&self) -> &[u32; 4] {
-		&self.counts
-	}
-
 	pub(crate) const fn remove_all_ignore_red(&mut self, tile: Tile) -> u8 {
 		let tile = tile.remove_red();
-		let offset = tile37_to_offset(tile);
-		let suit = (offset >> 5) as usize;
+		let offset = Tile37::tile_to_offset(tile);
+		let suit = usize::from(offset >> 5);
 		let offset = offset & ((0b1 << 5) - 1);
 		let mask = if tile.make_red().is_some() { 0o77 } else { 0o7 };
 
@@ -570,7 +674,7 @@ impl Tile37MultiSet {
 	const fn inventory(game_type: GameType, red_fives: [u8; 3]) -> Self {
 		let ts = Tile::each(game_type);
 
-		let mut result = Self::new();
+		let mut result = Self::default();
 
 		let mut i = 0;
 		while i < ts.len() {
@@ -610,7 +714,7 @@ impl<NT> Tile37CountedMultiSet<NT> {
 		NT: ArrayLength,
 	{
 		fn new_inner(ts: &[Tile]) -> Option<Tile37MultiSet> {
-			ts.iter().try_fold(Tile37MultiSet::new(), |mut result, &t| result.insert(t).then_some(result))
+			ts.iter().try_fold(Tile37MultiSet::default(), |mut result, &t| result.insert(t).then_some(result))
 		}
 
 		let inner = new_inner(ts)?;
@@ -620,12 +724,13 @@ impl<NT> Tile37CountedMultiSet<NT> {
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `None` when inserting more of a tile than should exist.
-	pub fn insert(self, tile: Tile) -> Option<Tile37CountedMultiSet<Sum<NT, U1>>>
+	pub const fn insert(self, tile: Tile) -> Option<Tile37CountedMultiSet<Sum<NT, U1>>>
 	where
 		NT: core::ops::Add<U1>,
 	{
 		let Self { mut inner, nt: _ } = self;
 		let inserted = inner.insert(tile);
+		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
 		if inserted {
 			Some(Tile37CountedMultiSet { inner, nt: Default::default() })
 		}
@@ -637,12 +742,13 @@ impl<NT> Tile37CountedMultiSet<NT> {
 	/// Removes the given tile from this set.
 	///
 	/// Returns `Some` if this tile existed in the set, `None` otherwise.
-	pub fn remove(self, tile: Tile) -> Option<Tile37CountedMultiSet<Diff<NT, U1>>>
+	pub const fn remove(self, tile: Tile) -> Option<Tile37CountedMultiSet<Diff<NT, U1>>>
 	where
 		NT: core::ops::Sub<U1>,
 	{
 		let Self { mut inner, nt: _ } = self;
 		let removed = inner.remove(tile);
+		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
 		if removed {
 			Some(Tile37CountedMultiSet { inner, nt: Default::default() })
 		}
@@ -667,13 +773,13 @@ impl<NT> Tile37CountedMultiSet<NT> {
 	}
 }
 
-impl<NT> AsRef<Tile37MultiSet> for Tile37CountedMultiSet<NT> {
+const impl<NT> AsRef<Tile37MultiSet> for Tile37CountedMultiSet<NT> {
 	fn as_ref(&self) -> &Tile37MultiSet {
 		&self.inner
 	}
 }
 
-impl<NT> Clone for Tile37CountedMultiSet<NT> {
+const impl<NT> Clone for Tile37CountedMultiSet<NT> {
 	fn clone(&self) -> Self {
 		Self { inner: self.inner.clone(), nt: self.nt }
 	}
@@ -695,7 +801,7 @@ where
 	type Error = ();
 
 	fn try_from(inner: Tile37MultiSet) -> Result<Self, Self::Error> {
-		let total = inner.totals[0] + inner.totals[1] + inner.totals[2] + inner.totals[3];
+		let total = core::simd::num::SimdUint::reduce_sum(core::simd::Simd::from_array(inner.totals));
 		if usize::from(total) == NT::USIZE {
 			Ok(Self { inner, nt: Default::default() })
 		}
@@ -705,13 +811,14 @@ where
 	}
 }
 
-impl<NT> From<Tile37CountedMultiSet<NT>> for Tile37MultiSet {
+const impl<NT> From<Tile37CountedMultiSet<NT>> for Tile37MultiSet {
 	fn from(set: Tile37CountedMultiSet<NT>) -> Self {
 		set.inner
 	}
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
