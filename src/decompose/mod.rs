@@ -1,17 +1,5 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	sequence::{Remove, Shorten},
-	typenum::{
-		Min, Minimum,
-		Prod,
-		Sum,
-		U1, U2, U3, U4,
-	},
-};
-
 use crate::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 	KouWait,
 	Number, NumberTile,
 	ScorableHandFourthMeld, ScorableHandMeld, ScorableHandPair, ShunLowTileAndHasFiveRed, ShunWait,
@@ -241,7 +229,9 @@ mod numbers {
 	include!("numbers.generated.rs");
 }
 
-pub(crate) struct Lookup<NM>(LookupInner, core::marker::PhantomData<NM>);
+#[derive(Debug)]
+#[derive_const(Clone, Default)]
+pub(crate) struct Lookup<const NM: usize>(LookupInner);
 
 // Common implementation independent of `NM` to combat monomorphization bloat.
 #[derive(Debug)]
@@ -267,48 +257,21 @@ enum PairSuit {
 	Ji = t!(E) as u8,
 }
 
-impl<NM> Lookup<NM>
-where
-	NM: core::ops::Mul<U3>,
-	Prod<NM, U3>: core::ops::Add<U2>,
-{
-	pub(crate) fn new(ts: &Tile37CountedMultiSet<Sum<Prod<NM, U3>, U2>>) -> Self {
-		Self(LookupInner::new(ts.as_ref()), Default::default())
+impl<const NM: usize> Lookup<NM> {
+	pub(crate) fn new(ts: &Tile37CountedMultiSet<{ NM * 3 + 2 }>) -> Self {
+		Self(LookupInner::new(ts.as_ref()))
 	}
 }
 
-const impl<NM> Clone for Lookup<NM> {
-	fn clone(&self) -> Self {
-		Self(self.0.clone(), self.1)
-	}
-}
-
-impl<NM> core::fmt::Debug for Lookup<NM> {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_tuple("Lookup")
-			.field(&self.0)
-			.finish()
-	}
-}
-
-const impl<NM> Default for Lookup<NM> {
-	fn default() -> Self {
-		Self(Default::default(), core::marker::PhantomData)
-	}
-}
-
-impl<NM> Iterator for Lookup<NM>
-where
-	NM: ArrayLength,
-{
-	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandPair);
+impl<const NM: usize> Iterator for Lookup<NM> {
+	type Item = ([ScorableHandMeld; NM], ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let mut melds = GenericArray::uninit();
+		let mut melds = [const { core::mem::MaybeUninit::uninit() }; NM];
 		let pair = unsafe { self.0.next_to(&mut melds)? };
 		// SAFETY: The size of `melds` is correct based on the number of tiles in `ts`. So if `self.0.next_to()` returned `Some(_)`,
 		// we know that `melds` must have been completely filled with melds.
-		let melds = unsafe { GenericArray::assume_init(melds) };
+		let melds = unsafe { core::mem::MaybeUninit::array_assume_init(melds) };
 		Some((melds, pair))
 	}
 
@@ -318,24 +281,15 @@ where
 	}
 }
 
-impl<NM> ExactSizeIterator for Lookup<NM>
-where
-	Self: Iterator,
-{
+impl<const NM: usize> ExactSizeIterator for Lookup<NM> {
 	fn len(&self) -> usize {
 		self.0.len()
 	}
 }
 
-impl<NM> core::iter::FusedIterator for Lookup<NM>
-where
-	Self: Iterator,
-{}
+impl<const NM: usize> core::iter::FusedIterator for Lookup<NM> {}
 
-unsafe impl<NM> core::iter::TrustedLen for Lookup<NM>
-where
-	Self: Iterator,
-{}
+unsafe impl<const NM: usize> core::iter::TrustedLen for Lookup<NM> {}
 
 impl LookupInner {
 	fn new(ts: &Tile37MultiSet) -> Self {
@@ -525,25 +479,27 @@ impl PairSuit {
 	}
 }
 
-pub(crate) struct LookupForNewTile<NM>
+#[derive(Clone, Debug)]
+pub(crate) struct LookupForNewTile<const NM: usize>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
+	[(); NM + 1]:,
+	[(); (NM + 2).min(4)]:,
 {
-	current: ArrayVecIntoIter<(GenericArray<ScorableHandMeld, NM>, ScorableHandFourthMeld, ScorableHandPair), Minimum<Sum<NM, U2>, U4>>,
-	lookup: Lookup<Sum<NM, U1>>,
+	current: core::array::IntoIter<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandPair), { (NM + 2).min(4) }>,
+	lookup: Lookup<{ NM + 1 }>,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 }
 
-impl<NM> LookupForNewTile<NM>
+impl<const NM: usize> LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
+	[(); NM + 1]:,
+	[(); (NM + 2).min(4)]:,
 {
-	pub(crate) const fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub(crate) const fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
-			current: Default::default(),
+			// TODO(rustup): Use `Default::default()` when `core::array::IntoIter: const Default`.
+			current: core::array::IntoIter::empty(),
 			lookup,
 			new_tile,
 			tsumo_or_ron,
@@ -551,44 +507,15 @@ where
 	}
 }
 
-impl<NM> Clone for LookupForNewTile<NM>
+const impl<const NM: usize> Default for LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
-{
-	fn clone(&self) -> Self {
-		Self {
-			current: self.current.clone(),
-			lookup: self.lookup.clone(),
-			new_tile: self.new_tile,
-			tsumo_or_ron: self.tsumo_or_ron,
-		}
-	}
-}
-
-impl<NM> core::fmt::Debug for LookupForNewTile<NM>
-where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
-{
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("LookupForNewTile")
-			.field("current", &self.current)
-			.field("lookup", &self.lookup)
-			.field("new_tile", &self.new_tile)
-			.field("tsumo_or_ron", &self.tsumo_or_ron)
-			.finish()
-	}
-}
-
-const impl<NM> Default for LookupForNewTile<NM>
-where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
+	[(); NM + 1]:,
+	[(); (NM + 2).min(4)]:,
 {
 	fn default() -> Self {
 		Self {
-			current: Default::default(),
+			// TODO(rustup): Use `Default::default()` when `core::array::IntoIter: const Default`.
+			current: core::array::IntoIter::empty(),
 			lookup: Default::default(),
 			new_tile: t!(1m),
 			tsumo_or_ron: TsumoOrRon::Tsumo,
@@ -596,17 +523,12 @@ where
 	}
 }
 
-impl<NM> Iterator for LookupForNewTile<NM>
+impl<const NM: usize> Iterator for LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1, Output: ArrayLength> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
-	Lookup<Sum<NM, U1>>: Iterator<Item = (GenericArray<ScorableHandMeld, Sum<NM, U1>>, ScorableHandPair)>,
-	GenericArray<ScorableHandMeld, Sum<NM, U1>>:
-		Copy +
-		Remove<ScorableHandMeld, Sum<NM, U1>, Output = GenericArray<ScorableHandMeld, NM>> +
-		Shorten<ScorableHandMeld, Shorter = GenericArray<ScorableHandMeld, NM>>,
+	[(); NM + 1]:,
+	[(); (NM + 2).min(4)]:,
 {
-	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandFourthMeld, ScorableHandPair);
+	type Item = ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		const ONES: Tile27Set = t27set![1m, 1p, 1s];
@@ -623,7 +545,8 @@ where
 				//    0m   |    5m    | yes, pair is 50m
 				//    0m   |    0m    | yes, pair is 50m
 				if pair.0 == self.new_tile || pair.0.remove_red() == self.new_tile {
-					let (ms, md) = Shorten::pop_back(ms);
+					let md = ms[ms.len() - 1];
+					let ms = unsafe { except(&ms, ms.len() - 1) };
 					let result = current.push((ms, ScorableHandFourthMeld::tanki(md), pair));
 					unsafe { result.unwrap_unchecked(); }
 				}
@@ -662,7 +585,7 @@ where
 
 						_ => unsafe { core::hint::unreachable_unchecked(); },
 					};
-					let (_, ms) = unsafe { Remove::remove_unchecked(ms, i) };
+					let ms = unsafe { except(&ms, i) };
 					Some((ms, md, pair))
 				}));
 				self.current = current.into_iter();
@@ -675,16 +598,29 @@ where
 	fn size_hint(&self) -> (usize, Option<usize>) {
 		let current_len = self.current.len();
 		let (lookup_lo, lookup_hi) = self.lookup.size_hint();
-		(current_len + lookup_lo, lookup_hi.map(|lookup_hi| current_len + lookup_hi * (NM::USIZE + 2)))
+		(current_len + lookup_lo, lookup_hi.map(|lookup_hi| current_len + lookup_hi * (NM + 2)))
 	}
 }
 
-impl<NM> core::iter::FusedIterator for LookupForNewTile<NM>
+impl<const NM: usize> core::iter::FusedIterator for LookupForNewTile<NM>
 where
-	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
-	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
-	Self: Iterator,
+	[(); NM + 1]:,
+	[(); (NM + 2).min(4)]:,
 {}
+
+/// # Safety
+///
+/// `ts_discard` must be within the bounds of `ts`.
+unsafe fn except<T, const N: usize>(ts: &[T; N + 1], ts_discard: usize) -> [T; N]
+where
+	T: Clone,
+{
+	unsafe { core::hint::assert_unchecked(ts_discard <= N); }
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; N];
+	result[..ts_discard].write_clone_of_slice(&ts[..ts_discard]);
+	result[ts_discard..].write_clone_of_slice(&ts[(ts_discard + 1)..]);
+	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
+}
 
 #[cfg(test)]
 #[coverage(off)]
@@ -831,14 +767,14 @@ mod tests {
 	fn to_meld() {
 		for ma in melds_last() {
 			let (t1, t2, t3, t4, new_tile, tsumo_or_ron) = fourth_meld_to_tiles(ma);
-			let ts = [t1, t2, t3, t4].into();
-			let expected = ([].into(), ma, ScorableHandPair(t!(1p)));
-			let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
+			let ts = [t1, t2, t3, t4];
+			let expected = ([], ma, ScorableHandPair(t!(1p)));
+			let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::<1>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
 			assert_eq!(actual, [expected], "{ma:?} did not meld into {expected:?}, only into {actual:?}");
 		}
 
 		// 124 -> X
-		assert!(Lookup::<U1>::new(&Tile37CountedMultiSet::new(&t![1s, 2s, 4s, 1p, 1p].into()).unwrap()).next().is_none());
+		assert!(Lookup::<1>::new(&Tile37CountedMultiSet::new(&t![1s, 2s, 4s, 1p, 1p]).unwrap()).next().is_none());
 	}
 
 	#[test]
@@ -858,14 +794,14 @@ mod tests {
 					continue;
 				}
 
-				let mut expected = ArrayVec::<_, U2>::new();
-				expected.push(([ma].into(), mb, ScorableHandPair(t!(1p)))).unwrap();
+				let mut expected = ArrayVec::<_, 2>::new();
+				expected.push(([ma], mb, ScorableHandPair(t!(1p)))).unwrap();
 				if let Some(mb) = mb.to_tanki() {
-					expected.push(([mb].into(), ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
+					expected.push(([mb], ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 				}
 
-				let ts = [t1, t2, t3, t4, t5, t6, t7].into();
-				let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
+				let ts = [t1, t2, t3, t4, t5, t6, t7];
+				let actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::<2>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
 				assert!(
 					expected.iter().any(|expected| actual.contains(expected)),
 					"{ma:?} + {mb:?} did not meld into any of {expected:?}, only into {actual:?}",
@@ -899,20 +835,20 @@ mod tests {
 						continue;
 					}
 
-					let mut expected = ArrayVec::<_, U3>::new();
+					let mut expected = ArrayVec::<_, 3>::new();
 					{
-						let ms = { let mut ms = [ma, mb]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [ma, mb]; ms.sort_unstable(); ms };
 						expected.push((ms, mc, ScorableHandPair(t!(1p)))).unwrap();
 					}
 					if let Some(mc) = mc.to_tanki() {
-						let ms = { let mut ms = [ma, mc]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [ma, mc]; ms.sort_unstable(); ms };
 						expected.push((ms, ScorableHandFourthMeld::tanki(mb), ScorableHandPair(t!(1p)))).unwrap();
-						let ms = { let mut ms = [mb, mc]; ms.sort_unstable(); ms.into() };
+						let ms = { let mut ms = [mb, mc]; ms.sort_unstable(); ms };
 						expected.push((ms, ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 					}
 
-					let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10].into();
-					let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
+					let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10];
+					let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::<3>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
 					for (ms, ..) in &mut actual { ms.sort_unstable(); }
 					assert!(
 						expected.iter().any(|expected| actual.contains(expected)),
@@ -956,22 +892,22 @@ mod tests {
 							continue;
 						}
 
-						let mut expected = ArrayVec::<_, U4>::new();
+						let mut expected = ArrayVec::<_, 4>::new();
 						{
-							let ms = { let mut ms = [ma, mb, mc]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mb, mc]; ms.sort_unstable(); ms };
 							expected.push((ms, md, ScorableHandPair(t!(1p)))).unwrap();
 						}
 						if let Some(md) = md.to_tanki() {
-							let ms = { let mut ms = [ma, mb, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mb, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::tanki(mc), ScorableHandPair(t!(1p)))).unwrap();
-							let ms = { let mut ms = [ma, mc, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [ma, mc, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::tanki(mb), ScorableHandPair(t!(1p)))).unwrap();
-							let ms = { let mut ms = [mb, mc, md]; ms.sort_unstable(); ms.into() };
+							let ms = { let mut ms = [mb, mc, md]; ms.sort_unstable(); ms };
 							expected.push((ms, ScorableHandFourthMeld::tanki(ma), ScorableHandPair(t!(1p)))).unwrap();
 						}
 
-						let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13].into();
-						let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
+						let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13];
+						let mut actual: std::vec::Vec<_> = LookupForNewTile::new(Lookup::<4>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()), new_tile, tsumo_or_ron).collect();
 						for (ms, ..) in &mut actual { ms.sort_unstable(); }
 						assert!(
 							expected.iter().any(|expected| actual.contains(expected)),

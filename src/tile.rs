@@ -1,5 +1,3 @@
-use generic_array::ArrayLength;
-
 use crate::{
 	ArrayVec,
 	GameType,
@@ -387,10 +385,7 @@ impl Tile {
 	///
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
-	pub fn parse_run_until<N>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()>
-	where
-		N: ArrayLength,
-	{
+	pub fn parse_run_until<const N: usize>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()> {
 		#[derive(Copy, Debug)]
 		#[derive_const(Clone)]
 		enum Op {
