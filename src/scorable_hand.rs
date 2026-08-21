@@ -1,5 +1,3 @@
-use generic_array::typenum::U13;
-
 use crate::{
 	HandMeld,
 	NumberTile,
@@ -865,7 +863,7 @@ impl core::fmt::Display for ScorableHandChiitoi {
 }
 
 impl ScorableHandKokushiMusou {
-	pub fn new(ts: &Tile37CountedMultiSet<U13>, t14: Tile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
+	pub fn new(ts: &Tile37CountedMultiSet<13>, t14: Tile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
 		ToKokushiMusou::new(ts).with_new_tile(t14, tsumo_or_ron)
 	}
 
