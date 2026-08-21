@@ -22,9 +22,8 @@ struct Meld<M> {
 	ms: [core::mem::MaybeUninit<M>; 4],
 }
 
-// TODO(rustup): Clippy incorrectly suggests using `#[derive(Clone)]` but that does not compile since `MaybeUninit<T>: Clone` requires `T: Copy`.
-#[expect(clippy::expl_impl_clone_on_copy)]
-impl<M> Clone for Meld<M>
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl<M> Clone for Meld<M>
 where
 	M: Copy,
 {
@@ -33,7 +32,8 @@ where
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(
 	clippy::eq_op,
@@ -56,7 +56,8 @@ enum Honor {
 	C = t!(R) as u8 - t!(E) as u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 struct LookupHonors {
 	pair: Option<Honor>,
 	// Every third bit corresponds to an honor tile offset.
@@ -96,26 +97,10 @@ impl LookupHonors {
 
 		Some(Self { pair, ankous })
 	}
-
-	/// # Safety
-	///
-	/// `melds` must have enough elements to write all of `self`'s melds.
-	unsafe fn write_melds_to<'a>(self, mut melds: impl Iterator<Item = &'a mut core::mem::MaybeUninit<ScorableHandMeld>>) {
-		let mut ankous = self.ankous;
-		while let Some(offset) = ankous.lowest_one() {
-			ankous &= !(0b1 << offset);
-			#[expect(clippy::cast_possible_truncation)]
-			let t = t!(E) as u8 + (((offset / 3) as u8) << 1);
-			let t = unsafe { core::mem::transmute::<u8, Tile>(t) };
-			let m = ScorableHandMeld::Ankou(t);
-			let slot = melds.next();
-			let slot = unsafe { slot.unwrap_unchecked() };
-			slot.write(m);
-		}
-	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(clippy::eq_op)]
 enum NumberMeld {
@@ -154,40 +139,9 @@ enum NumberMeld {
 	S7 = (t!(7m) as u8 - t!(1m) as u8) | (1 << 7),
 }
 
-impl NumberMeld {
-	fn with_base(self, base: NumberTile) -> ScorableHandMeld {
-		let number = self as u8;
-		if number & (1 << 7) == 0 {
-			// Ankou
-			let t = base as u8 + number;
-			let t = unsafe { core::mem::transmute::<u8, NumberTile>(t) };
-			ScorableHandMeld::Ankou(t.into())
-		}
-		else {
-			// Anjun
-			let number = number & !(1 << 7);
-			let t = base as u8 + number;
-			let t = unsafe { core::mem::transmute::<u8, ShunLowTileAndHasFiveRed>(t) };
-			ScorableHandMeld::Anjun(t)
-		}
-	}
-}
-
-impl Meld<NumberMeld> {
-	/// # Safety
-	///
-	/// `melds` must have enough elements to write all of `self`'s melds.
-	unsafe fn write_to<'a>(self, mut melds: impl Iterator<Item = &'a mut core::mem::MaybeUninit<ScorableHandMeld>>, base: NumberTile) {
-		let len = usize::from(self.len);
-		unsafe { core::hint::assert_unchecked(len <= self.ms.len()); }
-		for m in &self.ms[..len] {
-			let m = unsafe { m.assume_init() };
-			let slot = melds.next();
-			let slot = unsafe { slot.unwrap_unchecked() };
-			slot.write(m.with_base(base));
-		}
-	}
-}
+/// The offset from the base tile for honor melds / pair. This is `0`, because the base tile for honor melds / pair is the actual honor tile.
+/// See the comment on the `Lookup::meld_ptr` field.
+static HONOR_MELD: NumberMeld = NumberMeld::K1;
 
 #[allow(clippy::enum_glob_use)]
 mod numbers {
@@ -228,8 +182,6 @@ mod numbers {
 	}
 
 	include!("numbers.generated.rs");
-
-	pub(super) const EMPTY: &[(Option<NumberMeld>, Meld<NumberMeld>)] = &[(None, M0)];
 
 	pub(super) fn is_valid((counts, len): (u32, u8)) -> bool {
 		if len == 0 {
@@ -340,31 +292,7 @@ mod numbers {
 		// Micro-optimization: The combination could use a shift of 28 instead of 32, because `counts` only has 30 bits and the lower two bits of `present` are 0.
 		// However shifting by 32 means RISC-V can use `add.uw` to do the combination instead of separate `slli 30; or`.
 		let digits_and_present = (u64::from(present) << 32) | u64::from(counts);
-		let digits_and_present = cfg_select! {
-			all(target_arch = "x86_64", target_feature = "bmi2") =>
-				unsafe { core::arch::x86_64::_pext_u64(digits_and_present, (0o333_333_333 << 33) | 0o333_333_333) },
-
-			_ => {{
-				const fn step(x: u64, mask: u64, shift: u8) -> u64 {
-					let mask = mask | (mask << 33);
-					(x & !mask) | ((x & mask) >> shift)
-				}
-
-				//                                                  0ii_0hh_0gg_0ff_0ee_0dd_0cc_0bb_0aa
-				let digits_and_present = digits_and_present & ((0o333_333_333 << 33) | 0o333_333_333);
-				//                                               -> 0ii_00h_hgg_00f_fee_00d_dcc_00b_baa
-				let digits_and_present = step(digits_and_present, 0b000_011_000_011_000_011_000_011_000, 1);
-				//                                               -> 0ii_000_0hh_ggf_fee_000_0dd_ccb_baa
-				let digits_and_present = step(digits_and_present, 0b000_001_111_000_000_001_111_000_000, 2);
-				//                                               -> 0ii_000_000_00h_hgg_ffe_edd_ccb_baa
-				let digits_and_present = step(digits_and_present, 0b000_000_011_111_111_000_000_000_000, 4);
-				//                                               -> 000_000_000_iih_hgg_ffe_edd_ccb_baa
-				let digits_and_present = step(digits_and_present, 0b011_000_000_000_000_000_000_000_000, 8);
-				let present = digits_and_present >> 33;
-				let digits = digits_and_present & 0b11_11_11_11_11_11_11_11_11;
-				(present << (2 * 9)) | digits
-			}},
-		};
+		let digits_and_present = digits_and_present.extract_bits((0o333_333_333 << 33) | 0o333_333_333);
 		// Concatenation of all digits. Also set bit 18, the bit right after the 9th digit, so that if a run starts at the 9th digit,
 		// then it too has has a length marker.
 		#[expect(clippy::cast_possible_truncation)]
@@ -405,7 +333,8 @@ mod numbers {
 	}
 
 	/// Precomputed lookup state of a particular number suit.
-	#[derive(Clone, Copy)]
+	#[derive(Copy)]
+	#[derive_const(Clone)]
 	pub(super) struct SuitState {
 		digits: u32,
 		present: u32,
@@ -482,11 +411,16 @@ pub(crate) struct Lookup<NM>
 where
 	NM: core::ops::Add<U1, Output: ArrayLength>,
 {
-	ji: Option<LookupHonors>,
-	decomposition_ptr: GenericArray<*const (Option<NumberMeld>, Meld<NumberMeld>), Sum<NM, U1>>,
-	decomposition_len: GenericArray<u8, Sum<NM, U1>>,
-	decomposition_base: GenericArray<NumberTile, Sum<NM, U1>>,
-	decomposition_i: GenericArray<u8, Sum<NM, U1>>,
+	has_more: bool,
+	// The first NM elements are melds, and the NM + 1'th element is the pair.
+	// Honor melds / pair are stored as `meld_ptr` == `&HONOR_MELD` (which has value 0) and `meld_base` == the honor tile.
+	// This way, `meld_ptr` holds offsets from `meld_base` to the real meld / pair representative tile regardless of whether it's a number or honor meld / pair.
+	meld_ptr: GenericArray<*const NumberMeld, Sum<NM, U1>>,
+	meld_base: GenericArray<Tile, Sum<NM, U1>>,
+	// Maps each `meld_ptr` element to the index of its source decomposition parameters in `meld_source_len` and `meld_source_i`.
+	meld_source: GenericArray<u8, Sum<NM, U1>>,
+	meld_source_len: GenericArray<u8, Sum<NM, U1>>,
+	meld_source_i: GenericArray<u8, Sum<NM, U1>>,
 	reds: [u8; 3],
 }
 
@@ -498,13 +432,19 @@ where
 		// Common implementation independent of `NM` to combat monomorphization bloat.
 		fn inner(
 			ts: &Tile37MultiSet,
-			decomposition_ptr: &mut [*const (Option<NumberMeld>, Meld<NumberMeld>)],
-			decomposition_len: &mut [u8],
-			decomposition_base: &mut [NumberTile],
+			meld_ptr: &mut [*const NumberMeld],
+			meld_base: &mut [Tile],
+			meld_source: &mut [u8],
+			meld_source_len: &mut [u8],
 			reds: &mut [u8; 3],
-		) -> Option<LookupHonors> {
-			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_len.len()); }
-			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_base.len()); }
+		) -> bool {
+			unsafe { core::hint::assert_unchecked(meld_ptr.len() == meld_base.len()); }
+			unsafe { core::hint::assert_unchecked(meld_ptr.len() == meld_source.len()); }
+			unsafe { core::hint::assert_unchecked(meld_ptr.len() == meld_source_len.len()); }
+
+			let Some((pair_ptr, meld_ptr)) = meld_ptr.split_last_mut() else { return false; };
+			let Some((pair_base, meld_base)) = meld_base.split_last_mut() else { return false; };
+			let Some((pair_source, meld_source)) = meld_source.split_last_mut() else { return false; };
 
 			*reds = t![0m, 0p, 0s].map(|t| ts.get(t));
 
@@ -514,46 +454,100 @@ where
 			let sou = ts.sou();
 			let ji = ts.ji();
 
-			let mut slots = decomposition_ptr.iter_mut().zip(decomposition_len).zip(decomposition_base).rev();
+			let mut meld_source_slots = meld_source_len.iter_mut().enumerate().rev();
+			let mut meld_slots = meld_ptr.iter_mut().zip(meld_base).zip(meld_source);
 
 			// If any lookup failed, then the hand as a whole cannot be decomposed, so we can just terminate early.
-			let ji = LookupHonors::new(ji.0)?;
-			let mut has_pair = ji.pair.is_some();
+			let Some(ji) = LookupHonors::new(ji.0) else { return false; };
+			let mut has_pair =
+				if let Some(h) = ji.pair {
+					let pair_representative = t!(E) as u8 + h as u8;
+					*pair_base = unsafe { core::mem::transmute::<u8, Tile>(pair_representative) };
+					true
+				}
+				else {
+					false
+				};
 			for ((key, len), base) in [(man, tn!(1m)), (pin, tn!(1p)), (sou, tn!(1s))] {
 				if len % 3 == 1 {
-					return None;
+					return false;
 				}
 				for (start, decomposition) in numbers::lookup(key) {
-					// All elements of each slice have the same shape. Eg if the first element is `(Some(_), m2(..))`,
-					// then the other elements will also be `(Some(_), m2(..))`. This means that if we find one combination of elements
-					// that produces zero or more than two pairs, then every combination will also do that, so we can just terminate early.
-					let (pair, _) = decomposition.first()?;
-					if pair.is_some() && core::mem::replace(&mut has_pair, true) {
-						return None;
-					}
-
-					// More decompositions than slots means this hand as a whole cannot have a valid decomposition.
-					let ((slot_ptr, slot_len), slot_base) = slots.next()?;
-
-					*slot_ptr = decomposition.as_ptr();
-
-					#[expect(clippy::cast_possible_truncation)]
-					{
-						*slot_len = decomposition.len() as u8;
-					}
+					let Some((pair, melds)) = decomposition.first() else { return false; };
 
 					let base = base as u8 + (start << 1);
 					let base = unsafe { core::mem::transmute::<u8, NumberTile>(base) };
-					*slot_base = base;
+
+					// More decompositions than meld source slots means this hand as a whole cannot have a valid decomposition.
+					let Some((meld_source_i, slot_meld_source_len)) = meld_source_slots.next() else { return false; };
+
+					#[expect(clippy::cast_possible_truncation)]
+					{
+						*slot_meld_source_len = decomposition.len() as u8;
+					}
+
+					if let Some(pair) = pair {
+						// All elements of each slice have the same shape. Eg if the first element is `(Some(_), m2(..))`,
+						// then the other elements will also be `(Some(_), m2(..))`. This means that if we find one combination of elements
+						// that produces zero or more than two pairs, then every combination will also do that, so we can just terminate early.
+						if core::mem::replace(&mut has_pair, true) {
+							return false;
+						}
+
+						// This is equivalent to `*pair_ptr = pair;`, but miri complains that that pointer's provenance is limited to `pair`,
+						// whereas we want to use the pointer to walk through all elements of `decomposition`.
+						// So we need to retain the original provenance of `decomposition` by dealing only with pointers throughout.
+						let offset = unsafe { core::ptr::from_ref(pair).byte_offset_from(decomposition.as_ptr()) };
+						*pair_ptr = decomposition.as_ptr().wrapping_byte_offset(offset).cast();
+
+						*pair_base = base.into();
+
+						#[expect(clippy::cast_possible_truncation)]
+						{
+							*pair_source = meld_source_i as u8;
+						}
+					}
+
+					let ms = unsafe { core::ptr::addr_of!((*decomposition.as_ptr()).1.ms) };
+					let melds_len = usize::from(melds.len);
+					unsafe { core::hint::assert_unchecked(melds_len <= melds.ms.len()); }
+					for i in 0..melds_len {
+						// More melds than meld slots means this hand cannot have a valid decomposition.
+						let Some(((slot_meld_ptr, slot_meld_base), slot_meld_source)) = meld_slots.next() else { return false; };
+
+						// This is equivalent to `*slot_meld_ptr = unsafe { (*ms)[i].assume_init_ref() };`, but miri complains that that pointer's provenance is limited to `ms[i]`,
+						// whereas we want to use the pointer to walk through all elements of `decomposition`.
+						// So we need to retain the original provenance of `decomposition` by dealing only with pointers throughout.
+						*slot_meld_ptr = unsafe { (&raw const (*ms)[i]).cast::<NumberMeld>() };
+
+						*slot_meld_base = base.into();
+
+						#[expect(clippy::cast_possible_truncation)]
+						{
+							*slot_meld_source = meld_source_i as u8;
+						}
+					}
 				}
 			}
 
-			has_pair.then_some(ji)
+			let mut ji_ankous = ji.ankous;
+			while let Some(offset) = ji_ankous.lowest_one() {
+				ji_ankous &= !(0b1 << offset);
+
+				// More melds than slots means this hand as a whole cannot have a valid decomposition.
+				let Some(((_, slot_base), _)) = meld_slots.next() else { return false; };
+
+				#[expect(clippy::cast_possible_truncation)]
+				let base = t!(E) as u8 + (((offset / 3) as u8) << 1);
+				*slot_base = unsafe { core::mem::transmute::<u8, Tile>(base) };
+			}
+
+			has_pair
 		}
 
 		let ts = ts.as_ref();
 		let mut result = Self::default();
-		result.ji = inner(ts, &mut result.decomposition_ptr, &mut result.decomposition_len, &mut result.decomposition_base, &mut result.reds);
+		result.has_more = inner(ts, &mut result.meld_ptr, &mut result.meld_base, &mut result.meld_source, &mut result.meld_source_len, &mut result.reds);
 		result
 	}
 }
@@ -564,11 +558,12 @@ where
 {
 	fn clone(&self) -> Self {
 		Self {
-			ji: self.ji,
-			decomposition_ptr: self.decomposition_ptr.clone(),
-			decomposition_len: self.decomposition_len.clone(),
-			decomposition_base: self.decomposition_base.clone(),
-			decomposition_i: self.decomposition_i.clone(),
+			has_more: self.has_more,
+			meld_ptr: self.meld_ptr.clone(),
+			meld_base: self.meld_base.clone(),
+			meld_source: self.meld_source.clone(),
+			meld_source_len: self.meld_source_len.clone(),
+			meld_source_i: self.meld_source_i.clone(),
 			reds: self.reds,
 		}
 	}
@@ -580,11 +575,12 @@ where
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("Lookup")
-			.field("ji", &self.ji)
-			.field("decomposition_ptr", &self.decomposition_ptr)
-			.field("decomposition_len", &self.decomposition_len)
-			.field("decomposition_base", &self.decomposition_base)
-			.field("decomposition_i", &self.decomposition_i)
+			.field("has_more", &self.has_more)
+			.field("meld_ptr", &self.meld_ptr)
+			.field("meld_base", &self.meld_base)
+			.field("meld_source", &self.meld_source)
+			.field("meld_source_len", &self.meld_source_len)
+			.field("meld_source_i", &self.meld_source_i)
 			.field("reds", &self.reds)
 			.finish()
 	}
@@ -596,13 +592,13 @@ where
 {
 	fn default() -> Self {
 		Self {
-			ji: Default::default(),
-			decomposition_ptr: GenericArray::repeat(numbers::EMPTY.as_ptr()),
-			#[expect(clippy::cast_possible_truncation)]
-			decomposition_len: GenericArray::repeat(numbers::EMPTY.len() as u8),
-			decomposition_base: GenericArray::repeat(tn!(1m)),
-			decomposition_i: Default::default(),
-			reds: Default::default(),
+			has_more: false,
+			meld_ptr: GenericArray::repeat(&raw const HONOR_MELD),
+			meld_base: GenericArray::repeat(t!(1m)),
+			meld_source: GenericArray::repeat(0),
+			meld_source_len: GenericArray::repeat(1),
+			meld_source_i: GenericArray::repeat(0),
+			reds: [0; _],
 		}
 	}
 }
@@ -614,56 +610,54 @@ where
 	type Item = (GenericArray<ScorableHandMeld, NM>, ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		// Common implementation independent of `NM` to combat monomorphization bloat.
-		fn inner(
-			ji: &mut Option<LookupHonors>,
-			decomposition_ptr: &[*const (Option<NumberMeld>, Meld<NumberMeld>)],
-			decomposition_i: &mut [u8],
-			decomposition_base: &[NumberTile],
-			decomposition_len: &[u8],
-			melds: &mut [core::mem::MaybeUninit<ScorableHandMeld>],
-		) -> Option<ScorableHandPair> {
-			let ji_ = (*ji)?;
+		fn inner<const NM_: usize, const NM_PLUS_ONE: usize>(
+			self_has_more: &mut bool,
+			self_meld_ptr: &mut [*const NumberMeld; NM_PLUS_ONE],
+			self_meld_base: &[Tile; NM_PLUS_ONE],
+			self_meld_source: &[u8; NM_PLUS_ONE],
+			self_meld_source_len: &[u8; NM_PLUS_ONE],
+			self_meld_source_i: &mut [u8; NM_PLUS_ONE],
+		) -> ([ScorableHandMeld; NM_], ScorableHandPair) {
+			const { assert!(NM_PLUS_ONE == NM_ + 1); }
 
-			// SAFETY: In order to have gotten here, we know that two of the given tiles correspond to a pair and the rest are in melds.
-			// If there was not one pair, we would've returned a neutered iterator in `new()`.
-			// If one or more of the suits did not form a valid decomposition, the corresponding slice would've been empty and we would've returned a neutered iterator in `new()`.
-			//
-			// So we will fill the `melds` slice exactly.
-			let mut pair = ji_.pair.map(|h| {
-				let t = t!(E) as u8 + h as u8;
-				unsafe { core::mem::transmute::<u8, Tile>(t) }
-			});
+			let meld_ptr = core::simd::Simd::from_array(*self_meld_ptr);
+			let meld_ptr = core::simd::ptr::SimdConstPtr::cast::<u8>(meld_ptr);
+			let melds_and_pair = unsafe { core::simd::Simd::gather_ptr(meld_ptr) };
 
-			let mut melds = melds.iter_mut();
+			let meld_base = unsafe { &*<*const [Tile; NM_PLUS_ONE]>::cast::<[u8; NM_PLUS_ONE]>(self_meld_base) };
+			let tiles = core::simd::Simd::from_array(*meld_base) + (melds_and_pair & core::simd::Simd::splat(!(0b1 << 7)));
 
-			for ((&ptr, &i), &base) in decomposition_ptr.iter().zip(&*decomposition_i).zip(decomposition_base).rev() {
-				let (decomposition_pair, decomposition_melds) = unsafe { &*(ptr.add(usize::from(i))) };
+			let pair = {
+				let pair_representative = unsafe { core::mem::transmute::<u8, Tile>(tiles[NM_]) };
+				ScorableHandPair(pair_representative)
+			};
 
-				unsafe { decomposition_melds.write_to(&mut melds, base); }
-				pair = pair.or_else(|| decomposition_pair.map(|n| {
-					let t = base as u8 + n as u8;
-					unsafe { core::mem::transmute::<u8, Tile>(t) }
-				}));
-			}
-			unsafe { ji_.write_melds_to(melds); }
+			let melds = {
+				// 0b00______ => Ankou (2)
+				// 0b10______ => Anjun (4)
+				let melds = melds_and_pair.extract::<0, NM_>();
+				let ds = (melds >> core::simd::Simd::splat(6)) + core::simd::Simd::splat(2);
+				let (lo, hi) = ds.interleave(tiles.extract::<0, NM_>());
+				let melds = [lo.to_array(), hi.to_array()];
+				unsafe { core::mem::transmute_copy::<[[u8; NM_]; 2], [ScorableHandMeld; NM_]>(&melds) }
+			};
 
-			let pair = unsafe { pair.unwrap_unchecked() };
-			let pair = ScorableHandPair(pair);
-
-			cfg_select! {
+			let meld_ptr_offset = cfg_select! {
+				// TODO(rustup): Use `core::simd` once `Mask` stops sucking on RISC-V.
 				all(target_arch = "riscv64", target_feature = "v") => unsafe {
 					let to_increment: isize;
+					let mut meld_ptr_offset = core::simd::Simd::<i8, NM_PLUS_ONE>::splat(0);
+					let meld_ptr_offset_raw: u64;
 
 					core::arch::asm!(
-						"vsetvli zero, {nm_plus_one}, e8, m1, ta, ma",
-						// let decomposition_i /* : v8:v8 */ = core::simd::Simd::from_array(self.decomposition_i);
-						"vle8.v v8, ({decomposition_i})",
-						// let decomposition_len /* : v9:v9 */ = core::simd::Simd::from_array(self.decomposition_len);
-						"vle8.v v9, ({decomposition_len})",
-						// let decomposition_i_plus_one /* : v10:v10 */ = decomposition_i + core::simd::Simd::splat(1);
+						"vsetivli zero, {nm_plus_one}, e8, m1, ta, ma",
+						// let meld_source_i_previous /* : v8:v8 */ = core::simd::Simd::from_array(*self_meld_source_i);
+						"vle8.v v8, ({meld_source_i})",
+						// let meld_source_len /* : v9:v9 */ = core::simd::Simd::from_array(*self_meld_source_len);
+						"vle8.v v9, ({meld_source_len})",
+						// let meld_source_i_plus_one /* : v10:v10 */ = meld_source_i_previous + core::simd::Simd::splat(1);
 						"vadd.vi v10, v8, 1",
-						// let to_increment /* : v1:v1 */ = core::simd::cmp::SimdPartialOrd::simd_lt(decomposition_i_plus_one, decomposition_len);
+						// let to_increment /* : v1:v1 */ = core::simd::cmp::SimdPartialOrd::simd_lt(meld_source_i_plus_one, meld_source_len);
 						"vmsltu.vv v1, v10, v9",
 						// if let Some(to_increment) = to_increment.first_set() {
 						"vfirst.m {to_increment}, v1",
@@ -671,21 +665,35 @@ where
 						//     let to_increment = 0b1_u64 << to_increment;
 						//     let to_reset /* : v0:v0 */ = core::simd::Mask::<i8, { NM + 1 }>::from_bitmask(to_increment - 1);
 						"vmsbf.m v0, v1",
-						//     let decomposition_i /* : v8:v8 */ = core::simd::Select::select(to_reset, core::simd::Simd::splat(0), decomposition_i);
-						"vmerge.vim v8, v8, 0, v0",
+						//     let meld_source_i = core::simd::num::SimdUint::cast::<i8>(meld_source_i_previous);
+						//     let meld_ptr_offset /* : v9:v9 */ = core::simd::Select::Select(to_reset, -core::simd::num::SimdUint::cast::<i8>(meld_source_i), core::simd::Simd::splat(0));
+						"vrsub.vi v9, v8, 0",
+						"vmv.v.i v10, 0",
+						"vmerge.vvm v9, v10, v9, v0",
 						//     let to_increment /* : v0:v0 */ = core::simd::Mask::<i8, { NM + 1 }>::from_bitmask(to_increment);
 						"vmsof.m v0, v1",
-						//     let decomposition_i /* : v8:v8 */ = core::simd::Select::select(to_increment, decomposition_i_plus_one, decomposition_i);
-						"vmerge.vvm v8, v8, v10, v0",
-						//     decomposition_i.copy_to_slice(&mut self.decomposition_i);
-						"vse8.v v8, ({decomposition_i})",
+						//     let meld_ptr_offset /* : v9:v9 */ = core::simd::Select::select(to_increment, core::simd::Simd::splat(1), meld_ptr_offset);
+						"vmerge.vim v9, v9, 1, v0",
+						//     let meld_source_i /* : v8:v8 */ = core::num::SimdInt::cast::<u8>(core::simd::num::SimdUint::cast::<i8>(meld_source_i) + meld_ptr_offset);
+						"vadd.vv v8, v8, v9",
+						//     *self_meld_source_i = meld_source_i.to_array();
+						"vse8.v v8, ({meld_source_i})",
+						//     let meld_source /* : v10:v10 */ = core::simd::Simd::from_array(*self_meld_source);
+						"vle8.v v10, ({meld_source})",
+						//     let meld_ptr_offset = core::simd::num::SimdInt::cast::<u8>(meld_ptr_offset);
+						//     let meld_ptr_offset /* :v8:v8 */ = meld_ptr_offset.swizzle_dyn(meld_source);
+						"vrgather.vv v8, v9, v10",
+						"vsetivli zero, 1, e64, m1, ta, ma",
+						"vmv.x.s {meld_ptr_offset_raw}, v8",
 						// }
 						"1:",
 
-						nm_plus_one = in(reg) decomposition_i.len(),
-						decomposition_i = in(reg) decomposition_i.as_mut_ptr(),
-						decomposition_len = in(reg) decomposition_len.as_ptr(),
+						nm_plus_one = const NM_ + 1,
+						meld_source_i = in(reg) self_meld_source_i.as_mut_ptr(),
+						meld_source_len = in(reg) self_meld_source_len.as_ptr(),
 						to_increment = out(reg) to_increment,
+						meld_source = in(reg) self_meld_source.as_ptr(),
+						meld_ptr_offset_raw = lateout(reg) meld_ptr_offset_raw,
 						out("v0") _,
 						out("v1") _,
 						out("v8") _,
@@ -695,30 +703,98 @@ where
 					);
 
 					if to_increment < 0 {
-						*ji = None;
-					}
-				},
-
-				_ => {
-					for (i, &len) in decomposition_i.iter_mut().zip(decomposition_len) {
-						if *i + 1 < len {
-							*i += 1;
-							return Some(pair);
-						}
-						*i = 0;
+						*self_has_more = false;
 					}
 
-					*ji = None;
+					let meld_ptr_offset_raw = &meld_ptr_offset_raw.to_le_bytes().map(u8::cast_signed)[..meld_ptr_offset.len()];
+					meld_ptr_offset.as_mut_array().copy_from_slice(meld_ptr_offset_raw);
+					meld_ptr_offset
 				},
+
+				_ => {{
+					let meld_source_i_previous = core::simd::Simd::from_array(*self_meld_source_i);
+					let meld_source_i_plus_one = meld_source_i_previous + core::simd::Simd::splat(1);
+					let meld_source_len = core::simd::Simd::from_array(*self_meld_source_len);
+					let to_increment = core::simd::cmp::SimdPartialOrd::simd_lt(meld_source_i_plus_one, meld_source_len);
+					if let Some(to_increment) = to_increment.first_set() {
+						#[expect(clippy::cast_possible_truncation)]
+						let id = core::simd::Simd::from_array(core::array::from_fn(|i| i as i8));
+
+						#[expect(clippy::cast_possible_truncation)]
+						let to_increment = core::simd::Simd::splat(to_increment as i8);
+
+						let to_reset = core::simd::cmp::SimdPartialOrd::simd_lt(id, to_increment);
+						let meld_source_i = core::simd::num::SimdUint::cast::<i8>(meld_source_i_previous);
+						let meld_ptr_offset = core::simd::Select::select(to_reset, -meld_source_i, core::simd::Simd::splat(0));
+
+						let to_increment = core::simd::cmp::SimdPartialEq::simd_eq(id, to_increment);
+						let meld_ptr_offset = core::simd::Select::select(to_increment, core::simd::Simd::splat(1), meld_ptr_offset);
+						let meld_source_i = core::simd::num::SimdInt::cast::<u8>(meld_source_i + meld_ptr_offset);
+
+						*self_meld_source_i = meld_source_i.to_array();
+
+						let meld_source = core::simd::Simd::from_array(*self_meld_source);
+						let meld_ptr_offset = core::simd::num::SimdInt::cast::<u8>(meld_ptr_offset);
+						let meld_ptr_offset = meld_ptr_offset.swizzle_dyn(meld_source);
+						core::simd::num::SimdUint::cast::<i8>(meld_ptr_offset)
+					}
+					else {
+						*self_has_more = false;
+						core::simd::Simd::splat(0_i8)
+					}
+				}},
+			};
+
+			if *self_has_more {
+				let meld_ptr_offset = core::simd::num::SimdInt::cast::<isize>(meld_ptr_offset);
+				let stride = core::mem::size_of::<(Option<NumberMeld>, Meld<NumberMeld>)>().cast_signed();
+				let meld_ptr_offset = meld_ptr_offset * core::simd::Simd::splat(stride);
+
+				let meld_ptr = core::simd::ptr::SimdConstPtr::wrapping_offset(meld_ptr, meld_ptr_offset);
+				let meld_ptr = core::simd::ptr::SimdConstPtr::cast::<NumberMeld>(meld_ptr);
+				*self_meld_ptr = meld_ptr.to_array();
 			}
 
-			Some(pair)
+			(melds, pair)
 		}
 
-		let mut melds = GenericArray::uninit();
-		let pair = inner(&mut self.ji, &self.decomposition_ptr, &mut self.decomposition_i, &self.decomposition_base, &self.decomposition_len, &mut melds)?;
-		let melds = unsafe { GenericArray::assume_init(melds) };
-		Some((melds, pair))
+		if !self.has_more {
+			return None;
+		}
+
+		// To work around being unable to create `Simd<_, NM::USIZE>` etc, we monomorphize the impl for `NM = 1..=4`
+		// (`NM_PLUS_ONE = 2..=5`) and dispatch to the right one. The correct `match` arm is chosen at compile time
+		// and the rest are dropped, so this becomes static dispatch with no overhead.
+
+		macro_rules! static_dispatch_inner {
+			($(( $nm:literal $nm_plus_one:literal ))*) => {{
+				const { assert!((1..=4).contains(&NM::USIZE)); }
+				match NM::USIZE {
+					$(
+						$nm => {
+							let self_meld_ptr = unsafe { &mut *<*mut GenericArray<*const NumberMeld, Sum<NM, U1>>>::cast::<[*const NumberMeld; $nm_plus_one]>(&mut self.meld_ptr) };
+							let self_meld_base = unsafe { &*<*const GenericArray<Tile, Sum<NM, U1>>>::cast::<[Tile; $nm_plus_one]>(&self.meld_base) };
+							let self_meld_source = unsafe { &*<*const GenericArray<u8, Sum<NM, U1>>>::cast::<[u8; $nm_plus_one]>(&self.meld_source) };
+							let self_meld_source_len = unsafe { &*<*const GenericArray<u8, Sum<NM, U1>>>::cast::<[u8; $nm_plus_one]>(&self.meld_source_len) };
+							let self_meld_source_i = unsafe { &mut *<*mut GenericArray<u8, Sum<NM, U1>>>::cast::<[u8; $nm_plus_one]>(&mut self.meld_source_i) };
+							let (melds, pair) = inner::<$nm, $nm_plus_one>(
+								&mut self.has_more,
+								self_meld_ptr,
+								self_meld_base,
+								self_meld_source,
+								self_meld_source_len,
+								self_meld_source_i,
+							);
+							let melds = unsafe { core::mem::transmute_copy::<[ScorableHandMeld; $nm], GenericArray<ScorableHandMeld, NM>>(&melds) };
+							(melds, pair)
+						},
+					)*
+					_ => unreachable!(),
+				}
+			}};
+		}
+
+		Some(static_dispatch_inner!((1 2) (2 3) (3 4) (4 5)))
 	}
 
 	fn size_hint(&self) -> (usize, Option<usize>) {
@@ -734,9 +810,9 @@ where
 {
 	fn len(&self) -> usize {
 		// This function is small enough that monomorphizing it for the unrolled fold is better.
-		if self.ji.is_some() {
-			self.decomposition_len.iter()
-				.zip(&self.decomposition_i)
+		if self.has_more {
+			self.meld_source_len.iter()
+				.zip(&self.meld_source_i)
 				.rfold(1, |acc, (&len, &i)| acc * usize::from(len) - usize::from(i))
 		}
 		else {
@@ -876,7 +952,8 @@ where
 		let sou = ts34.sou();
 		let ji = ts34.ji();
 
-		let excess = [man.1, pin.1, sou.1, ji.1].map(|len| len % 3);
+		let lens = core::simd::Simd::from_array([man.1, pin.1, sou.1, ji.1]);
+		let excess = lens % core::simd::Simd::splat(3);
 		// Either one suit has 3n + 1 tiles, or two suits have 3n + 2 tiles for this hand to have a chance of being in tenpai.
 		// Any other case is guaranteed to not be in tenpai.
 		//
@@ -910,17 +987,27 @@ where
 		// |    0   |    0   |    4   | Impossible       |
 		//
 		// Thus the "Invalid" cases can be simplified into "more than two suits have more than 3n tiles".
-		let num_suits_with_excess = excess.into_iter().filter(|&excess| excess > 0).count();
+		//
+		// Micro-optimization: `mask.to_bitmask().count_ones()` generates silly code that widens the mask bits to `0xFF` as an intermediate step
+		// because of how `core::simd::Mask` is designed internally to wrap `iN` instead of `i1`.
+		// Doing `reduce_sum(select(mask, splat(1), splat(0)))` generates the intended code that does popcount on the mask.
+		let num_suits_with_excess =
+			core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(
+				core::simd::cmp::SimdPartialOrd::simd_gt(excess, core::simd::Simd::splat(0)),
+				core::simd::Simd::splat(1_u8),
+				core::simd::Simd::splat(0_u8),
+			));
 		if num_suits_with_excess > 2 {
 			return Default::default();
 		}
-		let mut candidates =
-			if excess[0] > 0 { MAN } else { Default::default() } |
-			if excess[1] > 0 { PIN } else { Default::default() } |
-			if excess[2] > 0 { SOU } else { Default::default() } |
-			if excess[3] > 0 { JI } else { Default::default() };
+		let mut candidates = Tile34Set::default();
+		candidates.present = core::simd::num::SimdUint::reduce_or(core::simd::Select::select(
+			core::simd::cmp::SimdPartialOrd::simd_gt(excess, core::simd::Simd::splat(0)),
+			core::simd::Simd::from_array([MAN.present, PIN.present, SOU.present, JI.present]),
+			Tile34Set::default().simd_splat(),
+		));
 
-		let expected_valid_lookups = excess.map(|excess| excess == 0);
+		let expected_valid_lookups = core::simd::cmp::SimdPartialEq::simd_eq(excess, core::simd::Simd::splat(0)).to_array();
 		for (expected_valid_lookup, suit) in expected_valid_lookups.into_iter().zip([man, pin, sou]) {
 			if expected_valid_lookup && !numbers::is_valid(suit) {
 				return Default::default();
@@ -946,7 +1033,8 @@ where
 			valid |= filter_offsets(candidates.present >> 27, |offset| LookupHonors::new(ji_key + (0b1 << (offset * 3))).is_some()) << 27;
 		}
 
-		let result = Tile34Set { present: valid };
+		let mut result = Tile34Set::default();
+		result.present = valid;
 		result.stretch_red_fives() & Tile37Set::insertable(ts)
 	}
 
@@ -1286,6 +1374,12 @@ where
 	Self: Iterator,
 {}
 
+unsafe impl<NM> core::iter::TrustedLen for FourthMelds<NM>
+where
+	NM: core::ops::Add<U1, Output: ArrayLength>,
+	Self: Iterator,
+{}
+
 fn restore_red_to_meld(m: &mut ScorableHandMeld, red: Tile) -> bool {
 	match m {
 		ScorableHandMeld::Ankou(t) => restore_red_to_kou(t, red),
@@ -1332,6 +1426,7 @@ fn restore_red_to_shun(representative: &mut ShunLowTileAndHasFiveRed, red: Tile)
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
