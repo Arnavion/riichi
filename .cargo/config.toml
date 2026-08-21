@@ -1,0 +1,5 @@
+[target.riscv64gc-unknown-linux-gnu]
+linker = "riscv64-suse-linux-gcc"
+runner = "/usr/bin/qemu-riscv64 -L /usr/riscv64-suse-linux/sys-root -E LD_LIBRARY_PATH=/usr/riscv64-suse-linux/sys-root/lib64"
+rustflags = ["-C", "target-feature=+b,+zca,+zcb,+zicond"]
+rustdocflags = ["-C", "target-feature=+b,+zca,+zcb,+zicond"]
