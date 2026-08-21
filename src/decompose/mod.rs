@@ -24,9 +24,8 @@ struct Meld<M> {
 	ms: [core::mem::MaybeUninit<M>; 4],
 }
 
-// TODO(rustup): Clippy incorrectly suggests using `#[derive(Clone)]` but that does not compile since `MaybeUninit<T>: Clone` requires `T: Copy`.
-#[expect(clippy::expl_impl_clone_on_copy)]
-impl<M> Clone for Meld<M>
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl<M> Clone for Meld<M>
 where
 	M: Copy,
 {
@@ -35,7 +34,8 @@ where
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(
 	clippy::eq_op,
@@ -58,7 +58,8 @@ enum Honor {
 	C = t!(R) as u8 - t!(E) as u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 struct LookupHonors {
 	pair: Option<Honor>,
 	ankous: u8,
@@ -68,19 +69,38 @@ impl LookupHonors {
 	fn new(key: u32) -> Option<Self> {
 		let mut result = Self { pair: None, ankous: 0 };
 
-		for offset in 0..=7 {
-			let n = (key >> (offset * 3)) & 0b111;
-			match n {
-				0 => (),
-				2 if result.pair.is_none() => {
-					let h = offset << 1;
-					let h = unsafe { core::mem::transmute::<u8, Honor>(h) };
-					result.pair = Some(h);
-				},
-				3 => result.ankous |= 0b1 << offset,
-				_ => return None,
-			}
+		let ns = core::simd::Simd::<_, 7>::splat(key);
+		#[expect(clippy::cast_possible_truncation)]
+		let ns = ns >> core::simd::Simd::from_array(core::array::from_fn(|i| 3 * (i as u32)));
+		let ns = ns & core::simd::Simd::splat(0b111);
+
+		let pairs = core::simd::cmp::SimdPartialEq::simd_eq(ns, core::simd::Simd::splat(2));
+		let ankous = core::simd::cmp::SimdPartialEq::simd_eq(ns, core::simd::Simd::splat(3));
+		let any = core::simd::cmp::SimdPartialEq::simd_ne(ns, core::simd::Simd::splat(0));
+		if pairs | ankous != any {
+			return None;
 		}
+
+		result.pair = {
+			let pairs = pairs.to_bitmask();
+			if let Some(offset) = pairs.lowest_one() {
+				if pairs != 0b1 << offset {
+					return None;
+				}
+				#[expect(clippy::cast_possible_truncation)]
+				let h = (offset as u8) << 1;
+				Some(unsafe { core::mem::transmute::<u8, Honor>(h) })
+			}
+			else {
+				None
+			}
+		};
+
+		#[expect(clippy::cast_possible_truncation)]
+		{
+			result.ankous = ankous.to_bitmask() as u8;
+		}
+
 		Some(result)
 	}
 
@@ -102,7 +122,8 @@ impl LookupHonors {
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(clippy::eq_op)]
 enum NumberMeld {
@@ -241,7 +262,7 @@ mod numbers {
 		true
 	}
 
-	pub(super) fn lookup(mut key: u32) -> impl Iterator<Item = &'static [(Option<NumberMeld>, Meld<NumberMeld>)]> {
+	pub(super) fn lookup(key: u32) -> impl Iterator<Item = &'static [(Option<NumberMeld>, Meld<NumberMeld>)]> {
 		const THREE_DIGITS: [u8; 512] = {
 			let mut result = [0_u8; _];
 			let mut i = 0;
@@ -255,17 +276,26 @@ mod numbers {
 			result
 		};
 
-		core::iter::from_fn(move || {
-			let offset = (key.lowest_one()? / 3) * 3;
-			let mut mask = 0b111 << offset;
-			let mut key_ = 0;
-			while key & mask != 0 {
-				key_ |= key & mask;
-				key &= !mask;
-				mask <<= 3;
-			}
-			Some(key_)
-		})
+		#[expect(clippy::cast_possible_truncation)]
+		let offsets = core::simd::Simd::<_, 9>::from_array(core::array::from_fn(|i| i as _));
+		let shifts = offsets * core::simd::Simd::splat(3);
+
+		let counts = core::simd::Simd::splat(key) >> shifts;
+		let counts = counts & core::simd::Simd::splat(0b111);
+
+		let present: core::simd::Mask<_, _> = core::simd::cmp::SimdPartialEq::simd_ne(counts, core::simd::Simd::splat(0));
+		let is_start = present & !(present.shift_elements_right::<1>(false));
+		#[expect(clippy::cast_possible_truncation)]
+		let present = present.to_bitmask() as u32;
+
+		let lengths = core::simd::num::SimdUint::trailing_ones(core::simd::Simd::splat(present) >> offsets);
+
+		let masks = ((core::simd::Simd::splat(0b1) << (lengths * core::simd::Simd::splat(3))) - core::simd::Simd::splat(0b1)) << shifts;
+
+		let contiguous_keys = core::simd::Simd::splat(key) & masks;
+		let contiguous_keys = core::simd::Select::select(is_start, contiguous_keys, core::simd::Simd::splat(0));
+		contiguous_keys.to_array().into_iter()
+			.filter(|&key| key != 0)
 			.map(|key| -> &'static [_] {
 				let key =
 					u32::from(THREE_DIGITS[(key & 0x1FF) as usize]) +
@@ -609,7 +639,7 @@ where
 		core::ops::Add<U1, Output: core::ops::Add<U1, Output: ArrayLength>> +
 		core::ops::Add<U2, Output: Min<U4, Output: ArrayLength>>,
 {
-	pub(crate) fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub(crate) const fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			current: Default::default(),
 			lookup,
@@ -724,7 +754,8 @@ pub fn lookup_tenpai<NT>(ts: Tile37CountedMultiSet<NT>) -> Tile37Set {
 		let sou = ts34.sou();
 		let ji = ts34.ji();
 
-		let excess = [man.1, pin.1, sou.1, ji.1].map(|len| len % 3);
+		let lens = core::simd::Simd::from_array([man.1, pin.1, sou.1, ji.1]);
+		let excess = lens % core::simd::Simd::splat(3);
 		// Either one suit has 3n + 1 tiles, or two suits have 3n + 2 tiles for this hand to have a chance of being in tenpai.
 		// Any other case is guaranteed to not be in tenpai.
 		//
@@ -736,18 +767,33 @@ pub fn lookup_tenpai<NT>(ts: Tile37CountedMultiSet<NT>) -> Tile37Set {
 		//   while the other suit will produce the pair.
 		// - If three or more suits have 3n + 2 tiles, the new tile will only convert one of them to 3n tiles, which means there will be two or more suits with 3n + 2 tiles,
 		//   which cannot be a valid complete hand.
-		let num_excess_1 = excess.into_iter().filter(|&excess| excess == 1).count();
-		let num_excess_2 = excess.into_iter().filter(|&excess| excess == 2).count();
+		//
+		// Micro-optimization: `simd_eq().to_bitmask().count_ones()` generates silly code that widens the mask to `0xFF` as an intermediate step
+		// because of how `core::simd::Mask` is designed internally to wrap `iN` instead of `i1`.
+		// Doing `reduce_sum(select(simd_eq(), splat(1), splat(0)))` generates the intended code that does popcount on the mask.
+		let num_excess_1 =
+			core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(
+				core::simd::cmp::SimdPartialEq::simd_eq(excess, core::simd::Simd::splat(1)),
+				core::simd::Simd::splat(1_u8),
+				core::simd::Simd::splat(0_u8),
+			));
+		let num_excess_2 =
+			core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(
+				core::simd::cmp::SimdPartialEq::simd_eq(excess, core::simd::Simd::splat(2)),
+				core::simd::Simd::splat(1_u8),
+				core::simd::Simd::splat(0_u8),
+			));
 		if !((num_excess_1 == 1 && num_excess_2 == 0) || (num_excess_1 == 0 && num_excess_2 == 2)) {
 			return Default::default();
 		}
-		let mut candidates =
-			if excess[0] > 0 { MAN } else { Default::default() } |
-			if excess[1] > 0 { PIN } else { Default::default() } |
-			if excess[2] > 0 { SOU } else { Default::default() } |
-			if excess[3] > 0 { JI } else { Default::default() };
+		let mut candidates = Tile34Set::default();
+		candidates.present = core::simd::num::SimdUint::reduce_or(core::simd::Select::select(
+			core::simd::cmp::SimdPartialOrd::simd_gt(excess, core::simd::Simd::splat(0)),
+			core::simd::Simd::from_array([MAN.present, PIN.present, SOU.present, JI.present]),
+			Tile34Set::default().simd_splat(),
+		));
 
-		let expected_valid_lookups = excess.map(|excess| excess == 0);
+		let expected_valid_lookups = core::simd::cmp::SimdPartialEq::simd_eq(excess, core::simd::Simd::splat(0)).to_array();
 		let Ok(man) = update_number_candidates(&mut candidates, man, expected_valid_lookups[0], &MAN) else { return Default::default(); };
 		let Ok(pin) = update_number_candidates(&mut candidates, pin, expected_valid_lookups[1], &PIN) else { return Default::default(); };
 		let Ok(sou) = update_number_candidates(&mut candidates, sou, expected_valid_lookups[2], &SOU) else { return Default::default(); };
@@ -1065,6 +1111,7 @@ fn restore_red_to_shun(representative: &mut ShunLowTileAndHasFiveRed, red: Tile)
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
