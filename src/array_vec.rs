@@ -76,7 +76,7 @@ where
 	}
 }
 
-impl<T, CAPACITY> Default for ArrayVec<T, CAPACITY>
+const impl<T, CAPACITY> Default for ArrayVec<T, CAPACITY>
 where
 	CAPACITY: ArrayLength,
 {
@@ -126,11 +126,10 @@ where
 	where
 		I: IntoIterator<Item = T>,
 	{
-		for element in iter {
-			if self.push(element).is_err() {
-				return;
-			}
-		}
+		unsafe { core::hint::assert_unchecked(self.len <= self.inner.len()) };
+
+		let (written, _) = self.inner[self.len..].write_iter(iter);
+		self.len += written.len();
 	}
 }
 
@@ -255,7 +254,7 @@ where
 	}
 }
 
-impl<T, CAPACITY> Default for ArrayVecIntoIter<T, CAPACITY>
+const impl<T, CAPACITY> Default for ArrayVecIntoIter<T, CAPACITY>
 where
 	T: core::fmt::Debug,
 	CAPACITY: ArrayLength,
@@ -334,6 +333,11 @@ where
 {}
 
 impl<T, CAPACITY> core::iter::FusedIterator for ArrayVecIntoIter<T, CAPACITY>
+where
+	CAPACITY: ArrayLength,
+{}
+
+unsafe impl<T, CAPACITY> core::iter::TrustedLen for ArrayVecIntoIter<T, CAPACITY>
 where
 	CAPACITY: ArrayLength,
 {}
