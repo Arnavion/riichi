@@ -24,9 +24,8 @@ struct Meld<M> {
 	ms: [core::mem::MaybeUninit<M>; 4],
 }
 
-// TODO(rustup): Clippy incorrectly suggests using `#[derive(Clone)]` but that does not compile since `MaybeUninit<T>: Clone` requires `T: Copy`.
-#[expect(clippy::expl_impl_clone_on_copy)]
-impl<M> Clone for Meld<M>
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl<M> Clone for Meld<M>
 where
 	M: Copy,
 {
@@ -35,7 +34,8 @@ where
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(clippy::eq_op)]
 enum Honor {
@@ -118,7 +118,8 @@ mod honors {
 	include!("honors.generated.rs");
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(clippy::eq_op)]
 enum NumberMeld {
@@ -243,7 +244,8 @@ mod numbers {
 pub(crate) struct Lookup<NM>(LookupInner, core::marker::PhantomData<NM>);
 
 // Common implementation independent of `NM` to combat monomorphization bloat.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug)]
+#[derive_const(Clone, Default)]
 struct LookupInner {
 	ji: Option<&'static (Option<Honor>, Meld<Honor>)>,
 	i_sou: u8,
@@ -254,7 +256,8 @@ struct LookupInner {
 	pair_suit: PairSuit,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Default)]
 #[repr(u8)]
 enum PairSuit {
 	#[default]
@@ -274,7 +277,7 @@ where
 	}
 }
 
-impl<NM> Clone for Lookup<NM> {
+const impl<NM> Clone for Lookup<NM> {
 	fn clone(&self) -> Self {
 		Self(self.0.clone(), self.1)
 	}
@@ -288,9 +291,9 @@ impl<NM> core::fmt::Debug for Lookup<NM> {
 	}
 }
 
-impl<NM> Default for Lookup<NM> {
+const impl<NM> Default for Lookup<NM> {
 	fn default() -> Self {
-		Self(Default::default(), Default::default())
+		Self(Default::default(), core::marker::PhantomData)
 	}
 }
 
@@ -325,6 +328,11 @@ where
 }
 
 impl<NM> core::iter::FusedIterator for Lookup<NM>
+where
+	Self: Iterator,
+{}
+
+unsafe impl<NM> core::iter::TrustedLen for Lookup<NM>
 where
 	Self: Iterator,
 {}
@@ -487,7 +495,7 @@ impl PairSuit {
 	/// # Safety
 	///
 	/// The `pair` parameter corresponding to `self` must be `Some(_)`.
-	unsafe fn make_pair(
+	const unsafe fn make_pair(
 		self,
 		man_pair: Option<NumberMeld>,
 		pin_pair: Option<NumberMeld>,
@@ -533,7 +541,7 @@ where
 	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
 	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
 {
-	pub(crate) fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+	pub(crate) const fn new(lookup: Lookup<Sum<NM, U1>>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			current: Default::default(),
 			lookup,
@@ -573,7 +581,7 @@ where
 	}
 }
 
-impl<NM> Default for LookupForNewTile<NM>
+const impl<NM> Default for LookupForNewTile<NM>
 where
 	NM: ArrayLength + core::ops::Add<U1> + core::ops::Add<U2>,
 	Sum<NM, U2>: Min<U4, Output: ArrayLength>,
@@ -678,10 +686,8 @@ where
 	Self: Iterator,
 {}
 
-// Used by `make_hand!` expansion.
-pub use generic_array;
-
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 

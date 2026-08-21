@@ -4,373 +4,532 @@ use crate::{
 	Tile, Tile34MultiSet, Tile37MultiSet,
 };
 
-macro_rules! make_tset {
-	(
-		$( $(#[ $meta:meta ])* pub type $tset:ident = TileSet<$tile:ty, $n:literal, $tile_to_offset:ident, $offset_to_tile:ident, $all_yonma:ident, $all_sanma:ident, IntoIter = $tset_intoiter:ident>; )*
-	) => {
-		$(
-			$(#[ $meta ])*
-			#[derive(Clone, Default, PartialEq, Eq)]
-			#[repr(transparent)]
-			pub struct $tset {
-				pub(crate) present: u64,
-			}
-
-			impl $tset {
-				pub const fn new() -> Self {
-					Self {
-						present: 0,
-					}
-				}
-
-				#[doc = concat!("Create a `", stringify!($tset), "` that contains all the tiles that exist in the given game type.")]
-				pub fn all(game_type: GameType) -> Self {
-					const YONMA_RESULT: $tset = {
-						let tiles = $all_yonma();
-
-						// This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`
-						let mut result = $tset::new();
-						let mut i = 0;
-						while i < tiles.len() {
-							result.insert(tiles[i]);
-							i += 1;
-						}
-
-						result
-					};
-
-					const SANMA_RESULT: $tset = {
-						let tiles = $all_sanma();
-
-						// This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`
-						let mut result = $tset::new();
-						let mut i = 0;
-						while i < tiles.len() {
-							result.insert(tiles[i]);
-							i += 1;
-						}
-
-						result
-					};
-
-					match game_type {
-						GameType::Yonma => YONMA_RESULT,
-						GameType::Sanma => SANMA_RESULT,
-					}
-				}
-
-				/// Returns `true` if this set is empty.
-				pub const fn is_empty(&self) -> bool {
-					self.present == 0
-				}
-
-				/// Returns `true` if this set contains the given tile.
-				pub const fn contains(&self, tile: $tile) -> bool {
-					self.tile_to_present_ref(tile)
-				}
-
-				/// Inserts the given tile into this set.
-				///
-				/// Returns `false` when the tile was already present in the set.
-				pub const fn insert(&mut self, tile: $tile) -> bool {
-					let mut count = self.tile_to_present_mut(tile);
-					!count.set(true)
-				}
-
-				/// Inserts all tiles from the given iterator into this set.
-				///
-				/// # Errors
-				///
-				/// Returns `Err()` when inserting more of a tile than should exist.
-				pub fn try_extend(&mut self, iter: impl IntoIterator<Item = $tile>) -> Result<(), $tile> {
-					for tile in iter {
-						if !self.insert(tile) {
-							return Err(tile);
-						}
-					}
-					Ok(())
-				}
-
-				/// Removes the given tile from this set.
-				///
-				/// Returns `true` if this tile existed in the set, `false` otherwise.
-				pub const fn remove(&mut self, tile: $tile) -> bool {
-					let mut count = self.tile_to_present_mut(tile);
-					count.set(false)
-				}
-
-				/// Retains only those tiles in this set that satisfy the given predicate.
-				pub fn retain(&mut self, mut f: impl FnMut($tile) -> bool) {
-					let mut result = 0_u64;
-
-					while let Some(offset) = self.present.lowest_one() {
-						self.present &= !(0b1 << offset);
-						#[expect(clippy::cast_possible_truncation)]
-						let offset = offset as u8;
-						let tile = $offset_to_tile(offset);
-						let retain = f(tile);
-						result |= u64::from(retain) << offset;
-					}
-
-					self.present = result;
-				}
-
-				const fn tile_to_present_ref(&self, tile: $tile) -> bool {
-					let offset = $tile_to_offset(tile);
-					self.present & (0b1 << offset) != 0
-				}
-
-				const fn tile_to_present_mut(&mut self, tile: $tile) -> U1Mut<'_> {
-					let offset = $tile_to_offset(tile);
-					U1Mut {
-						present: &mut self.present,
-						offset,
-					}
-				}
-			}
-
-			#[doc = concat!("Returns a `", stringify!($tset), "` containing all the elements of this set that are also present in the given set.")]
-			impl core::ops::BitAnd for $tset {
-				type Output = Self;
-
-				fn bitand(self, other: Self) -> Self::Output {
-					Self { present: self.present & other.present }
-				}
-			}
-
-			/// Retains only the elements of this set that are also present in the given set.
-			impl core::ops::BitAndAssign for $tset {
-				fn bitand_assign(&mut self, other: Self) {
-					self.present &= other.present;
-				}
-			}
-
-			#[doc = concat!("Returns a `", stringify!($tset), "` containing all the elements of this set and all the elements of the given set.")]
-			impl core::ops::BitOr for $tset {
-				type Output = Self;
-
-				fn bitor(self, other: Self) -> Self::Output {
-					Self { present: self.present | other.present }
-				}
-			}
-
-			/// Inserts all the elements of the given set into this set.
-			impl core::ops::BitOrAssign for $tset {
-				fn bitor_assign(&mut self, other: Self) {
-					self.present |= other.present;
-				}
-			}
-
-			#[doc = concat!("Returns a `", stringify!($tset), "` with all the elements of this set and all the elements of the given set")]
-			/// except the elements that are present in both sets.
-			impl core::ops::BitXor for $tset {
-				type Output = Self;
-
-				fn bitxor(self, other: Self) -> Self::Output {
-					Self { present: self.present ^ other.present }
-				}
-			}
-
-			/// Inserts all elements of the given set into this set and removes all elements from this set that are also present in the given set.
-			impl core::ops::BitXorAssign for $tset {
-				fn bitxor_assign(&mut self, other: Self) {
-					self.present ^= other.present;
-				}
-			}
-
-			impl core::fmt::Debug for $tset
-			where
-				Self: Clone + IntoIterator<Item = $tile>,
-			{
-				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-					f.debug_set().entries(self.clone()).finish()
-				}
-			}
-
-			impl FromIterator<$tile> for $tset {
-				fn from_iter<T>(iter: T) -> Self
-				where
-					T: IntoIterator<Item = $tile>,
-				{
-					let mut result = Self::default();
-					for tile in iter {
-						_ = result.insert(tile);
-					}
-					result
-				}
-			}
-
-			impl IntoIterator for $tset {
-				type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
-				type IntoIter = $tset_intoiter;
-
-				fn into_iter(self) -> Self::IntoIter {
-					$tset_intoiter {
-						present: self.present,
-					}
-				}
-			}
-
-			#[doc = concat!("Returns a `", stringify!($tset), "` with all the elements that this type of set could have except the elements present in this set.")]
-			impl core::ops::Not for $tset {
-				type Output = Self;
-
-				fn not(self) -> Self::Output {
-					Self { present: !(self.present) & ((0b1 << $n) - 1) }
-				}
-			}
-
-			#[doc = concat!("An [`Iterator`] of all [`", stringify!($tile), "`]s in a [`", stringify!($tset), "`].")]
-			#[derive(Clone)]
-			#[repr(transparent)]
-			pub struct $tset_intoiter {
-				present: u64,
-			}
-
-			impl $tset_intoiter {
-				fn next_inner(&mut self, offset: u32) -> $tile {
-					#[expect(clippy::cast_possible_truncation)]
-					let offset = offset as u8;
-					let tile = $offset_to_tile(offset);
-					let mut count = U1Mut {
-						present: &mut self.present,
-						offset,
-					};
-					count.set(false);
-					tile
-				}
-			}
-
-			impl core::fmt::Debug for $tset_intoiter {
-				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-					f.debug_struct(stringify!($tset_intoiter)).finish_non_exhaustive()
-				}
-			}
-
-			impl Iterator for $tset_intoiter {
-				type Item = $tile;
-
-				fn next(&mut self) -> Option<Self::Item> {
-					Some(self.next_inner(self.present.lowest_one()?))
-				}
-
-				fn size_hint(&self) -> (usize, Option<usize>) {
-					let len = self.len();
-					(len, Some(len))
-				}
-			}
-
-			impl DoubleEndedIterator for $tset_intoiter {
-				fn next_back(&mut self) -> Option<Self::Item> {
-					Some(self.next_inner(self.present.highest_one()?))
-				}
-			}
-
-			impl ExactSizeIterator for $tset_intoiter {
-				fn len(&self) -> usize {
-					self.present.count_ones() as usize
-				}
-			}
-
-			impl core::iter::FusedIterator for $tset_intoiter {}
-		)*
-	};
+/// A set specialized to hold [`Tile`]s or [`NumberTile`] in a compact non-allocating representation.
+///
+/// See the pre-defined aliases [`Tile27Set`] and [`Tile34Set`].
+pub struct TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	pub(crate) present: u64,
+	element: core::marker::PhantomData<TElement>,
 }
 
-make_tset! {
-	/// A set specialized to hold [`NumberTile`]s in a compact non-allocating representation.
-	///
-	/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
-	/// in its implementation of [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
-	pub type Tile27Set = TileSet<NumberTile, 27, number_tile_to_offset, offset_to_number_tile, number_tiles_all_yonma, number_tiles_all_sanma, IntoIter = Tile27SetIntoIter>;
+/// Parameter for [`TileSet`] to control what type of tiles it holds.
+pub const trait TileSetElement {
+	type Tile: Copy + core::fmt::Debug + 'static;
+	const N: usize;
 
-	/// A set specialized to hold [`Tile`]s in a compact non-allocating representation.
-	///
-	/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
-	/// in its implementation of [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
-	pub type Tile34Set = TileSet<Tile, 34, tile34_to_offset, offset_to_tile34, tiles34_all_yonma, tiles34_all_sanma, IntoIter = Tile34SetIntoIter>;
+	fn tile_to_offset(tile: Self::Tile) -> u8;
 
-	/// A set specialized to hold [`Tile`]s in a compact non-allocating representation.
-	///
-	/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as distinct tiles
-	/// in its implementation of [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
-	pub type Tile37Set = TileSet<Tile, 37, tile37_to_offset, offset_to_tile37, tiles37_all_yonma, tiles37_all_sanma, IntoIter = Tile37SetIntoIter>;
+	fn offset_to_tile(offset: u8) -> Self::Tile;
+
+	fn all_yonma() -> &'static [Self::Tile];
+
+	fn all_sanma() -> &'static [Self::Tile];
 }
+
+impl<TElement> TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	/// Create a `TileSet` that contains all the tiles that exist in the given game type.
+	pub const fn all(game_type: GameType) -> Self {
+		match game_type {
+			GameType::Yonma => const { tile_set_all_yonma() },
+			GameType::Sanma => const { tile_set_all_sanma() },
+		}
+	}
+
+	/// Returns `true` if this set is empty.
+	pub const fn is_empty(&self) -> bool {
+		self.present == 0
+	}
+
+	/// Returns `true` if this set contains the given tile.
+	pub const fn contains(&self, tile: TElement::Tile) -> bool {
+		self.tile_to_present_ref(tile)
+	}
+
+	/// Inserts the given tile into this set.
+	///
+	/// Returns `false` when the tile was already present in the set.
+	pub const fn insert(&mut self, tile: TElement::Tile) -> bool {
+		let mut count = self.tile_to_present_mut(tile);
+		!count.set(true)
+	}
+
+	/// Inserts all tiles from the given iterator into this set.
+	///
+	/// # Errors
+	///
+	/// Returns `Err()` when inserting more of a tile than should exist.
+	pub fn try_extend(&mut self, iter: impl IntoIterator<Item = TElement::Tile>) -> Result<(), TElement::Tile> {
+		for tile in iter {
+			if !self.insert(tile) {
+				return Err(tile);
+			}
+		}
+		Ok(())
+	}
+
+	/// Removes the given tile from this set.
+	///
+	/// Returns `true` if this tile existed in the set, `false` otherwise.
+	pub const fn remove(&mut self, tile: TElement::Tile) -> bool {
+		let mut count = self.tile_to_present_mut(tile);
+		count.set(false)
+	}
+
+	/// Retains only those tiles in this set that satisfy the given predicate.
+	pub fn retain(&mut self, mut f: impl FnMut(TElement::Tile) -> bool) {
+		let mut result = 0_u64;
+
+		while let Some(offset) = self.present.lowest_one() {
+			self.present &= !(0b1 << offset);
+			#[expect(clippy::cast_possible_truncation)]
+			let offset = offset as u8;
+			let tile = TElement::offset_to_tile(offset);
+			let retain = f(tile);
+			result |= u64::from(retain) << offset;
+		}
+
+		self.present = result;
+	}
+
+	pub(crate) const fn simd_splat<const N: usize>(self) -> core::simd::Simd<u64, N> {
+		core::simd::Simd::splat(self.present)
+	}
+
+	const fn tile_to_present_ref(&self, tile: TElement::Tile) -> bool {
+		let offset = TElement::tile_to_offset(tile);
+		self.present & (0b1 << offset) != 0
+	}
+
+	const fn tile_to_present_mut(&mut self, tile: TElement::Tile) -> U1Mut<'_> {
+		let offset = TElement::tile_to_offset(tile);
+		U1Mut {
+			present: &mut self.present,
+			offset,
+		}
+	}
+}
+
+/// Returns a `TileSet` containing all the elements of this set that are also present in the given set.
+const impl<TElement> core::ops::BitAnd for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	type Output = Self;
+
+	fn bitand(self, other: Self) -> Self::Output {
+		Self { present: self.present & other.present, element: self.element }
+	}
+}
+
+/// Retains only the elements of this set that are also present in the given set.
+const impl<TElement> core::ops::BitAndAssign for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn bitand_assign(&mut self, other: Self) {
+		self.present &= other.present;
+	}
+}
+
+/// Returns a `TileSet` containing all the elements of this set and all the elements of the given set.
+const impl<TElement> core::ops::BitOr for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	type Output = Self;
+
+	fn bitor(self, other: Self) -> Self::Output {
+		Self { present: self.present | other.present, element: self.element }
+	}
+}
+
+/// Inserts all the elements of the given set into this set.
+const impl<TElement> core::ops::BitOrAssign for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn bitor_assign(&mut self, other: Self) {
+		self.present |= other.present;
+	}
+}
+
+/// Returns a `TileSet` with all the elements of this set and all the elements of the given set
+/// except the elements that are present in both sets.
+const impl<TElement> core::ops::BitXor for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	type Output = Self;
+
+	fn bitxor(self, other: Self) -> Self::Output {
+		Self { present: self.present ^ other.present, element: self.element }
+	}
+}
+
+/// Inserts all elements of the given set into this set and removes all elements from this set that are also present in the given set.
+const impl<TElement> core::ops::BitXorAssign for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn bitxor_assign(&mut self, other: Self) {
+		self.present ^= other.present;
+	}
+}
+
+const impl<TElement> Clone for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn clone(&self) -> Self {
+		Self {
+			present: self.present,
+			element: self.element,
+		}
+	}
+}
+
+impl<TElement> core::fmt::Debug for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+	Self: Clone + IntoIterator<Item = TElement::Tile>,
+{
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_set().entries(self.clone()).finish()
+	}
+}
+
+const impl<TElement> Default for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn default() -> Self {
+		Self {
+			present: 0,
+			element: Default::default(),
+		}
+	}
+}
+
+impl<TElement> FromIterator<TElement::Tile> for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn from_iter<T>(iter: T) -> Self
+	where
+		T: IntoIterator<Item = TElement::Tile>,
+	{
+		let mut result = Self::default();
+		for tile in iter {
+			_ = result.insert(tile);
+		}
+		result
+	}
+}
+
+impl<TElement> IntoIterator for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+	TileSetIntoIter<TElement>: Iterator,
+{
+	type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
+	type IntoIter = TileSetIntoIter<TElement>;
+
+	fn into_iter(self) -> Self::IntoIter {
+		TileSetIntoIter {
+			present: self.present,
+			element: Default::default(),
+		}
+	}
+}
+
+/// Returns a `TileSet` with all the elements that this type of set could have except the elements present in this set.
+const impl<TElement> core::ops::Not for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	type Output = Self;
+
+	fn not(self) -> Self::Output {
+		Self { present: !(self.present) & ((0b1 << TElement::N) - 1), element: self.element }
+	}
+}
+
+const impl<TElement> PartialEq for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn eq(&self, other: &Self) -> bool {
+		self.present == other.present
+	}
+}
+
+const impl<TElement> Eq for TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{}
+
+const fn tile_set_all_yonma<TElement>() -> TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	let tiles = TElement::all_yonma();
+
+	// TODO(rustup): This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`.
+	let mut result = TileSet::default();
+	let mut i = 0;
+	while i < tiles.len() {
+		result.insert(tiles[i]);
+		i += 1;
+	}
+
+	result
+}
+
+const fn tile_set_all_sanma<TElement>() -> TileSet<TElement>
+where
+	TElement: const TileSetElement,
+{
+	let tiles = TElement::all_sanma();
+
+	// TODO(rustup): This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`.
+	let mut result = TileSet::default();
+	let mut i = 0;
+	while i < tiles.len() {
+		result.insert(tiles[i]);
+		i += 1;
+	}
+
+	result
+}
+
+/// An [`Iterator`] of all tiles in a [`TileSet`].
+pub struct TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	present: u64,
+	element: core::marker::PhantomData<TElement>,
+}
+
+impl<TElement> TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	const fn next_inner(&mut self, offset: u32) -> TElement::Tile {
+		#[expect(clippy::cast_possible_truncation)]
+		let offset = offset as u8;
+		let tile = TElement::offset_to_tile(offset);
+		let mut count = U1Mut {
+			present: &mut self.present,
+			offset,
+		};
+		count.set(false);
+		tile
+	}
+}
+
+const impl<TElement> Clone for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn clone(&self) -> Self {
+		Self {
+			present: self.present,
+			element: self.element,
+		}
+	}
+}
+
+impl<TElement> core::fmt::Debug for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("TileSetIntoIter").finish_non_exhaustive()
+	}
+}
+
+impl<TElement> Iterator for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	type Item = TElement::Tile;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		Some(self.next_inner(self.present.lowest_one()?))
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let len = self.len();
+		(len, Some(len))
+	}
+}
+
+impl<TElement> DoubleEndedIterator for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn next_back(&mut self) -> Option<Self::Item> {
+		Some(self.next_inner(self.present.highest_one()?))
+	}
+}
+
+impl<TElement> ExactSizeIterator for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{
+	fn len(&self) -> usize {
+		self.present.count_ones() as usize
+	}
+}
+
+impl<TElement> core::iter::FusedIterator for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{}
+
+unsafe impl<TElement> core::iter::TrustedLen for TileSetIntoIter<TElement>
+where
+	TElement: const TileSetElement,
+{}
+
+/// A set specialized to hold [`NumberTile`]s in a compact non-allocating representation.
+///
+/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
+/// in its implementation of [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
+pub type Tile27Set = TileSet<Tile27SetElement>;
+/// An [`Iterator`] of all [`NumberTile`]s in a [`Tile27Set`].
+pub type Tile27SetIntoIter = TileSetIntoIter<Tile27SetElement>;
 
 assert_size_of!(Tile27Set, 8);
+
+/// Parameterizes a [`TileSet`] to hold [`NumberTile`]s,
+/// considering [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles.
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub struct Tile27SetElement;
+
+const impl TileSetElement for Tile27SetElement {
+	type Tile = NumberTile;
+	const N: usize = 27_usize;
+
+	fn tile_to_offset(tile: Self::Tile) -> u8 {
+		(tile as u8 - t!(1m) as u8) >> 1
+	}
+
+	fn offset_to_tile(offset: u8) -> Self::Tile {
+		let tile = (offset << 1) + t!(1m) as u8;
+		unsafe { core::mem::transmute::<u8, NumberTile>(tile) }
+	}
+
+	fn all_yonma() -> &'static [Self::Tile] {
+		&tn![
+			1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m,
+			1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
+			1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
+		]
+	}
+
+	fn all_sanma() -> &'static [Self::Tile] {
+		&tn![
+			1m, 9m,
+			1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
+			1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
+		]
+	}
+}
+
+/// A set specialized to hold [`Tile`]s in a compact non-allocating representation.
+///
+/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles
+/// in its implementation of [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
+pub type Tile34Set = TileSet<Tile34SetElement>;
+/// An [`Iterator`] of all [`Tile`]s in a [`Tile34Set`].
+pub type Tile34SetIntoIter = TileSetIntoIter<Tile34SetElement>;
+
 assert_size_of!(Tile34Set, 8);
+
+/// Parameterizes a [`TileSet`] to hold [`Tile`]s,
+/// considering [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles.
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub struct Tile34SetElement;
+
+const impl TileSetElement for Tile34SetElement {
+	type Tile = Tile;
+	const N: usize = 34_usize;
+
+	fn tile_to_offset(tile: Self::Tile) -> u8 {
+		(tile as u8 - t!(1m) as u8) >> 1
+	}
+
+	fn offset_to_tile(offset: u8) -> Self::Tile {
+		let tile = (offset << 1) + t!(1m) as u8;
+		unsafe { core::mem::transmute::<u8, Tile>(tile) }
+	}
+
+	fn all_yonma() -> &'static [Self::Tile] {
+		&t![
+			1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m,
+			1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
+			1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
+			E, S, W, N,
+			Wh, G, R,
+		]
+	}
+
+	fn all_sanma() -> &'static [Self::Tile] {
+		&t![
+			1m, 9m,
+			1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
+			1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
+		]
+	}
+}
+
+/// A set specialized to hold [`Tile`]s in a compact non-allocating representation.
+///
+/// This type considers [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as distinct tiles
+/// in its implementation of [`contains`](Self::contains), [`insert`](Self::insert) and [`remove`](Self::remove).
+pub type Tile37Set = TileSet<Tile37SetElement>;
+/// An [`Iterator`] of all [`Tile`]s in a [`Tile37Set`].
+pub type Tile37SetIntoIter = TileSetIntoIter<Tile37SetElement>;
+
 assert_size_of!(Tile37Set, 8);
 
-const fn number_tile_to_offset(tile: NumberTile) -> u8 {
-	(tile as u8 - tn!(1m) as u8) >> 1
-}
+/// Parameterizes a [`TileSet`] to hold [`Tile`]s,
+/// considering [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as distinct tiles.
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
+pub struct Tile37SetElement;
 
-const fn offset_to_number_tile(offset: u8) -> NumberTile {
-	let offset = (offset << 1) + tn!(1m) as u8;
-	unsafe { core::mem::transmute::<u8, NumberTile>(offset) }
-}
+const impl TileSetElement for Tile37SetElement {
+	type Tile = Tile;
+	const N: usize = 37_usize;
 
-const fn number_tiles_all_yonma() -> &'static [NumberTile] {
-	&tn![
-		1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m,
-		1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
-		1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
-	]
-}
+	fn tile_to_offset(tile: Self::Tile) -> u8 {
+		((tile as u8 - t!(1m) as u8) >> 1) + 3 - u8::from(tile < t!(0m)) - u8::from(tile < t!(0p)) - u8::from(tile < t!(0s))
+	}
 
-const fn number_tiles_all_sanma() -> &'static [NumberTile] {
-	&tn![
-		1m, 9m,
-		1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
-		1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
-	]
-}
+	fn offset_to_tile(offset: u8) -> Self::Tile {
+		let tile = offset - u8::from(offset >= 5) - u8::from(offset >= 15) - u8::from(offset >= 25);
+		let tile = ((tile << 1) + t!(1m) as u8) | u8::from(offset == 5 || offset == 15 || offset == 25);
+		unsafe { core::mem::transmute::<u8, Tile>(tile) }
+	}
 
-const fn tile34_to_offset(tile: Tile) -> u8 {
-	(tile as u8 - t!(1m) as u8) >> 1
-}
+	fn all_yonma() -> &'static [Self::Tile] {
+		Tile::each(GameType::Yonma)
+	}
 
-const fn offset_to_tile34(offset: u8) -> Tile {
-	let offset = (offset << 1) + t!(1m) as u8;
-	unsafe { core::mem::transmute::<u8, Tile>(offset) }
-}
-
-const fn tiles34_all_yonma() -> &'static [Tile] {
-	&t![
-		1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m,
-		1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
-		1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
-		E, S, W, N,
-		Wh, G, R,
-	]
-}
-
-const fn tiles34_all_sanma() -> &'static [Tile] {
-	&t![
-		1m, 9m,
-		1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p,
-		1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
-		E, S, W, N,
-		Wh, G, R,
-	]
-}
-
-const fn tile37_to_offset(tile: Tile) -> u8 {
-	((tile as u8 - t!(1m) as u8) >> 1) + 3 - ((tile as u8) < (t!(0m) as u8)) as u8 - ((tile as u8) < (t!(0p) as u8)) as u8 - ((tile as u8) < (t!(0s) as u8)) as u8
-}
-
-const fn offset_to_tile37(offset: u8) -> Tile {
-	let tile = offset - (offset >= 5) as u8 - (offset >= 15) as u8 - (offset >= 25) as u8;
-	let tile = ((tile << 1) + t!(1m) as u8) | (offset == 5 || offset == 15 || offset == 25) as u8;
-	unsafe { core::mem::transmute::<u8, Tile>(tile) }
-}
-
-const fn tiles37_all_yonma() -> &'static [Tile] {
-	Tile::each(GameType::Yonma)
-}
-
-const fn tiles37_all_sanma() -> &'static [Tile] {
-	Tile::each(GameType::Sanma)
+	fn all_sanma() -> &'static [Self::Tile] {
+		Tile::each(GameType::Sanma)
+	}
 }
 
 struct U1Mut<'a> {
@@ -404,160 +563,57 @@ impl Tile27Set {
 }
 
 impl Tile34Set {
-	#[cfg(not(all(target_arch = "riscv64", target_feature = "v")))]
 	pub(crate) const TERMINALS: Self = t34set![1m, 9m, 1p, 9p, 1s, 9s];
 
-	#[cfg(not(all(target_arch = "riscv64", target_feature = "v")))]
 	pub(crate) const HONORS: Self = t34set![E, S, W, G, N, Wh, G, R];
 
-	pub(crate) const TERMINALS_AND_HONORS: Self = t34set![1m, 9m, 1p, 9p, 1s, 9s, E, S, W, N, Wh, G, R];
+	pub(crate) const TERMINALS_AND_HONORS: Self = Self::TERMINALS | Self::HONORS;
 
-	fn from_suit_counts(set_m: u32, set_p: u32, set_s: u32, set_z: u32) -> Self {
-		fn to_set_numbers(set: u32) -> u32 {
-			cfg_select! {
-				all(target_arch = "x86_64", target_feature = "bmi2") =>
-					unsafe { core::arch::x86_64::_pext_u32(set, 0b001_001_001_001_001_001_001_001_001) },
-
-				_ => {{
-					//            00i_00h_00g_00f_00e_00d_00c_00b_00a
-
-					//         -> 00i_000_0hg_000_0fe_000_0dc_000_0ba
-					let set =
-						( set & 0b001_000_001_000_001_000_001_000_001) |
-						((set & 0b000_001_000_001_000_001_000_001_000) >> 2);
-
-					//         -> 00i_000_000_00h_gfe_000_000_00d_cba
-					let set =
-						( set & 0b001_000_000_000_011_000_000_000_011) |
-						((set & 0b000_000_011_000_000_000_011_000_000) >> 4);
-
-					//         -> 00i_000_000_000_000_000_0hg_fed_cba
-					let set =
-						( set & 0b001_000_000_000_000_000_000_001_111) |
-						((set & 0b000_000_000_001_111_000_000_000_000) >> 8);
-
-					//         -> 000_000_000_000_000_000_000_ihg_fed_cba
-					let set =
-						( set & 0b000_000_000_000_000_000_011_111_111) |
-						((set & 0b001_000_000_000_000_000_000_000_000) >> 16);
-
-					set
-				}},
-			}
+	fn from_suit_counts(mut sets: core::simd::Simd<u32, 4>) -> Self {
+		const fn to_set(count: u32) -> u32 {
+			count.extract_bits(0b001_001_001_001_001_001_001_001_001)
 		}
 
-		fn to_set_honors(set: u32) -> u32 {
-			cfg_select! {
-				all(target_arch = "x86_64", target_feature = "bmi2") =>
-					unsafe { core::arch::x86_64::_pext_u32(set, 0b001_001_001_001_001_001_001) },
-
-				_ => {{
-					//            00g_00f_00e_00d_00c_00b_00a
-
-					//         -> 00g_000_0fe_000_0dc_000_0ba
-					let set =
-						( set & 0b001_000_001_000_001_000_001) |
-						((set & 0b000_001_000_001_000_001_000) >> 2);
-
-					//         -> 000_000_gfe_000_000_00d_cba
-					let set =
-						( set & 0b000_000_011_000_000_000_011) |
-						((set & 0b001_000_000_000_011_000_000) >> 4);
-
-					//         -> 000_000_000_000_00g_fed_cba
-					let set =
-						( set & 0b000_000_000_000_000_001_111) |
-						((set & 0b000_000_111_000_000_000_000) >> 8);
-
-					set
-				}},
-			}
-		}
-
-		let set_m = to_set_numbers(set_m);
-		let set_p = to_set_numbers(set_p);
-		let set_s = to_set_numbers(set_s);
-		let set_z = to_set_honors(set_z);
-		let present =
-			u64::from(set_m) |
-			(u64::from(set_p) << 9) |
-			(u64::from(set_s) << 18) |
-			(u64::from(set_z) << 27);
-		Self { present }
+		sets[0] = to_set(sets[0]);
+		sets[1] = to_set(sets[1]);
+		sets[2] = to_set(sets[2]);
+		sets[3] = to_set(sets[3]);
+		let sets = core::simd::num::SimdUint::cast::<u64>(sets);
+		let sets = sets << core::simd::Simd::from_array([0, 9, 18, 27]);
+		let present = core::simd::num::SimdUint::reduce_or(sets);
+		Self { present, element: Default::default() }
 	}
 
+	#[cfg_attr(use_core_simd, expect(unused))]
 	pub(crate) fn atleast_two(set: &Tile34MultiSet) -> Self {
-		const fn to_set(counts: u32) -> u32 {
-			(counts >> 1) | (counts >> 2)
-		}
-
-		let (counts_m, _) = set.man();
-		let (counts_p, _) = set.pin();
-		let (counts_s, _) = set.sou();
-		let (counts_z, _) = set.ji();
-		Self::from_suit_counts(
-			to_set(counts_m),
-			to_set(counts_p),
-			to_set(counts_s),
-			to_set(counts_z),
-		)
+		let counts = set.to_suits_simd();
+		let sets = (counts >> 1) | (counts >> 2);
+		Self::from_suit_counts(sets)
 	}
 
+	#[cfg_attr(use_core_simd, expect(unused))]
 	pub(crate) fn atleast_three(set: &Tile34MultiSet) -> Self {
-		const fn to_set(counts: u32) -> u32 {
-			(counts & (counts >> 1)) | (counts >> 2)
-		}
-
-		let (counts_m, _) = set.man();
-		let (counts_p, _) = set.pin();
-		let (counts_s, _) = set.sou();
-		let (counts_z, _) = set.ji();
-		Self::from_suit_counts(
-			to_set(counts_m),
-			to_set(counts_p),
-			to_set(counts_s),
-			to_set(counts_z),
-		)
+		let counts = set.to_suits_simd();
+		let sets = (counts & (counts >> 1)) | (counts >> 2);
+		Self::from_suit_counts(sets)
 	}
 
 	pub(crate) fn atleast_four(set: &Tile34MultiSet) -> Self {
-		const fn to_set(counts: u32) -> u32 {
-			counts >> 2
-		}
-
-		let (counts_m, _) = set.man();
-		let (counts_p, _) = set.pin();
-		let (counts_s, _) = set.sou();
-		let (counts_z, _) = set.ji();
-		Self::from_suit_counts(
-			to_set(counts_m),
-			to_set(counts_p),
-			to_set(counts_s),
-			to_set(counts_z),
-		)
+		let counts = set.to_suits_simd();
+		let sets = counts >> 2;
+		Self::from_suit_counts(sets)
 	}
 }
 
 impl From<&Tile34MultiSet> for Tile34Set {
 	fn from(set: &Tile34MultiSet) -> Self {
-		const fn to_set(counts: u32) -> u32 {
-			counts | (counts >> 1) | (counts >> 2)
-		}
-
-		let (counts_m, _) = set.man();
-		let (counts_p, _) = set.pin();
-		let (counts_s, _) = set.sou();
-		let (counts_z, _) = set.ji();
-		Self::from_suit_counts(
-			to_set(counts_m),
-			to_set(counts_p),
-			to_set(counts_s),
-			to_set(counts_z),
-		)
+		let counts = set.to_suits_simd();
+		let sets = counts | (counts >> 1) | (counts >> 2);
+		Self::from_suit_counts(sets)
 	}
 }
 
-impl From<Tile37Set> for Tile34Set {
+const impl From<Tile37Set> for Tile34Set {
 	fn from(set: Tile37Set) -> Self {
 		let present = set.present;
 		let present =
@@ -565,116 +621,56 @@ impl From<Tile37Set> for Tile34Set {
 			((present & 0b0000000_0000000000_0000011111_1111100000) >> 1) |
 			((present & 0b0000000_0000011111_1111100000_0000000000) >> 2) |
 			((present & 0b1111111_1111100000_0000000000_0000000000) >> 3);
-		Self { present }
+		Self { present, element: Default::default() }
 	}
 }
 
 impl Tile37Set {
 	pub(crate) const fn remove_ignore_red(&mut self, tile: Tile) {
-		let offset = tile37_to_offset(tile.remove_red());
+		let offset = Tile37SetElement::tile_to_offset(tile.remove_red());
 		let mask = if tile.make_red().is_some() { 0b11 } else { 0b1 };
 		self.present &= !(mask << offset);
 	}
 }
 
-impl From<Tile34Set> for Tile37Set {
+const impl From<Tile34Set> for Tile37Set {
 	fn from(set: Tile34Set) -> Self {
 		let present = set.present;
+		// `deposit_bits` maps to `pdep` on x86_64 with BMI2 which is short, but generates much worse code on targets where it's lowered to bit manipulation.
+		// For those targets, the masks and shifts generate better code.
 		let present = cfg_select! {
-			all(target_arch = "x86_64", target_feature = "bmi2") => unsafe { core::arch::x86_64::_pdep_u64(present, 0b1111111_1111011111_1111011111_1111011111) },
+			all(target_arch = "x86_64", target_feature = "bmi2") => present.deposit_bits(0b1111111_1111011111_1111011111_1111011111),
 			_ =>
 				( present & 0b0000000_000000000_000000000_000011111) |
 				((present & 0b0000000_000000000_000011111_111100000) << 1) |
 				((present & 0b0000000_000011111_111100000_000000000) << 2) |
 				((present & 0b1111111_111100000_000000000_000000000) << 3),
 		};
-		Self { present }
+		Self { present, element: Default::default() }
 	}
 }
 
 impl From<Tile37MultiSet> for Tile37Set {
 	fn from(set: Tile37MultiSet) -> Self {
-		fn to_set_numbers(count: u32) -> u32 {
-			let set = count | (count >> 1) | (count >> 2);
-			cfg_select! {
-				all(target_arch = "x86_64", target_feature = "bmi2") =>
-					unsafe { core::arch::x86_64::_pext_u32(set, 0b001_001_001_001_001_001_001_001_001_001) },
-
-				_ => {{
-					//            00j_00i_00h_00g_00f_00e_00d_00c_00b_00a
-
-					//         -> 000_0ji_000_0hg_000_0fe_000_0dc_000_0ba
-					let set =
-						( set & 0b000_001_000_001_000_001_000_001_000_001) |
-						((set & 0b001_000_001_000_001_000_001_000_001_000) >> 2);
-
-					//         -> 000_0ji_000_000_00h_gfe_000_000_00d_cba
-					let set =
-						( set & 0b000_011_000_000_000_011_000_000_000_011) |
-						((set & 0b000_000_000_011_000_000_000_011_000_000) >> 4);
-
-					//         -> 000_0ji_000_000_000_000_000_0hg_fed_cba
-					let set =
-						( set & 0b000_011_000_000_000_000_000_000_001_111) |
-						((set & 0b000_000_000_000_001_111_000_000_000_000) >> 8);
-
-					//         -> 000_000_000_000_000_000_00j_ihg_fed_cba
-					let set =
-						( set & 0b000_000_000_000_000_000_000_011_111_111) |
-						((set & 0b000_011_000_000_000_000_000_000_000_000) >> 16);
-
-					set
-				}},
-			}
+		const fn to_set(count: u32) -> u32 {
+			count.extract_bits(0b001_001_001_001_001_001_001_001_001_001)
 		}
 
-		fn to_set_honors(count: u32) -> u32 {
-			let set = count | (count >> 1) | (count >> 2);
-			cfg_select! {
-				all(target_arch = "x86_64", target_feature = "bmi2") =>
-					unsafe { core::arch::x86_64::_pext_u32(set, 0b001_001_001_001_001_001_001) },
-
-				_ => {{
-					//            00g_00f_00e_00d_00c_00b_00a
-
-					//         -> 00g_000_0fe_000_0dc_000_0ba
-					let set =
-						( set & 0b001_000_001_000_001_000_001) |
-						((set & 0b000_001_000_001_000_001_000) >> 2);
-
-					//         -> 000_000_gfe_000_000_00d_cba
-					let set =
-						( set & 0b000_000_011_000_000_000_011) |
-						((set & 0b001_000_000_000_011_000_000) >> 4);
-
-					//         -> 000_000_000_000_00g_fed_cba
-					let set =
-						( set & 0b000_000_000_000_000_001_111) |
-						((set & 0b000_000_111_000_000_000_000) >> 8);
-
-					set
-				}},
-			}
-		}
-
-		let (counts_man, _) = set.man();
-		let (counts_pin, _) = set.pin();
-		let (counts_sou, _) = set.sou();
-		let (counts_ji, _) = set.ji();
-		let set_man = to_set_numbers(counts_man);
-		let set_pin = to_set_numbers(counts_pin);
-		let set_sou = to_set_numbers(counts_sou);
-		let set_ji = to_set_honors(counts_ji);
-		let present =
-			u64::from(set_man) |
-			(u64::from(set_pin) << 10) |
-			(u64::from(set_sou) << 20) |
-			(u64::from(set_ji) << 30);
-		Self { present }
+		let sets = set.to_suits_simd();
+		let mut sets = sets | (sets >> 1) | (sets >> 2);
+		sets[0] = to_set(sets[0]);
+		sets[1] = to_set(sets[1]);
+		sets[2] = to_set(sets[2]);
+		sets[3] = to_set(sets[3]);
+		let sets = core::simd::num::SimdUint::cast::<u64>(sets);
+		let sets = sets << core::simd::Simd::from_array([0, 10, 20, 30]);
+		let present = core::simd::num::SimdUint::reduce_or(sets);
+		Self { present, element: Default::default() }
 	}
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
