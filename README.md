@@ -1,5 +1,9 @@
 Various things related to [Riichi Mahjong.](https://en.wikipedia.org/wiki/Riichi_Mahjong)
 
+There is no reason to use this library. There are better ones on crates.io already.
+
+This library supports [Mahjong Soul's](https://mahjongsoul.yo-star.com/) [ranked ruleset](https://riichi.wiki/index.php?title=Mahjong_Soul&oldid=30696#Rules) and [Riichi City's](https://www.mahjong-jp.com/) [ranked rulset](https://riichi.wiki/index.php?title=Riichi_City&oldid=29150#Game_rules), plus their local yaku.
+
 
 # License
 
@@ -25,3 +29,5 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ```
+
+Uses text and examples from [Riichi.Wiki](https://riichi.wiki/) which uses CC BY-NC-SA 4.0
