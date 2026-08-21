@@ -1,3 +1,30 @@
+#![feature(
+	array_into_iter_constructors,
+	cmp_minmax,
+	const_clone,
+	const_cmp,
+	const_convert,
+	const_default,
+	const_destruct,
+	const_drop_in_place,
+	const_index,
+	const_ops,
+	const_range,
+	const_trait_impl,
+	const_try,
+	coverage_attribute,
+	derive_const,
+	generic_const_exprs,
+	maybe_uninit_array_assume_init,
+	maybe_uninit_fill,
+	portable_simd,
+	trusted_len,
+	uint_gather_scatter_bits,
+)]
+#![expect(
+	incomplete_features, // For generic_const_exprs
+)]
+
 #![no_std]
 
 //! # To simulate a round
@@ -48,6 +75,8 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
+//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -115,6 +144,8 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
+//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -544,10 +575,10 @@ macro_rules! td {
 /// // Hand containing 2334488s555z and an ankan of EEEE
 /// let hand = make_hand!(2s 3s 3s 4s 4s 8s 8s Wh Wh Wh { ankan E E E E });
 /// assert_eq!(hand, Hand(
-///     t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh].into(),
+///     t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh],
 ///     [
 ///         HandMeld::ankan(t!(E), t!(E), t!(E), t!(E)).unwrap(),
-///     ].into(),
+///     ],
 /// ));
 /// ```
 #[macro_export]
@@ -572,100 +603,100 @@ macro_rules! make_hand {
 	}};
 
 	($t1:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U1, $crate::generic_array::typenum::U4>(
-			$crate::t![$t1,].into(),
+		$crate::Hand::<1, 4>(
+			$crate::t![$t1,],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U2, $crate::generic_array::typenum::U4>(
-			$crate::t![$t1, $t2,].into(),
+		$crate::Hand::<2, 4>(
+			$crate::t![$t1, $t2,],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U4, $crate::generic_array::typenum::U3>(
-			$crate::t![$t1, $t2, $t3, $t4].into(),
+		$crate::Hand::<4, 3>(
+			$crate::t![$t1, $t2, $t3, $t4],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U5, $crate::generic_array::typenum::U3>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5].into(),
+		$crate::Hand::<5, 3>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U7, $crate::generic_array::typenum::U2>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7].into(),
+		$crate::Hand::<7, 2>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U8, $crate::generic_array::typenum::U2>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8].into(),
+		$crate::Hand::<8, 2>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8],
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U10, $crate::generic_array::typenum::U1>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10].into(),
+		$crate::Hand::<10, 1>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10],
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U11, $crate::generic_array::typenum::U1>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11].into(),
+		$crate::Hand::<11, 1>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11],
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U13, $crate::generic_array::typenum::U0>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into(),
-			[].into(),
+		$crate::Hand::<13, 0>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13],
+			[],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U14, $crate::generic_array::typenum::U0>(
-			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13, $t14].into(),
-			[].into(),
+		$crate::Hand::<14, 0>(
+			$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13, $t14],
+			[],
 		)
 	};
 }
@@ -943,6 +974,7 @@ macro_rules! make_scorable_hand {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use riichi::{tn, t27set};
 /// #
@@ -954,7 +986,7 @@ macro_rules! make_scorable_hand {
 macro_rules! t27set {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile27Set::new();
+		let mut result = $crate::Tile27Set::default();
 		$(
 			result.insert($crate::tn!($t));
 		)*
@@ -966,6 +998,7 @@ macro_rules! t27set {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use riichi::{t, t34set};
 /// #
@@ -977,7 +1010,7 @@ macro_rules! t27set {
 macro_rules! t34set {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile34Set::new();
+		let mut result = $crate::Tile34Set::default();
 		$(
 			result.insert($crate::t!($t));
 		)*
@@ -989,6 +1022,7 @@ macro_rules! t34set {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use riichi::{t, t37set};
 /// #
@@ -1000,7 +1034,7 @@ macro_rules! t34set {
 macro_rules! t37set {
 	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
-		let mut result = $crate::Tile37Set::new();
+		let mut result = $crate::Tile37Set::default();
 		$(
 			result.insert($crate::t!($t));
 		)*
@@ -1012,6 +1046,7 @@ macro_rules! t37set {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use std::num::NonZero;
 /// # use riichi::{tn, t27multiset};
@@ -1026,7 +1061,7 @@ macro_rules! t37set {
 /// ```
 #[macro_export]
 macro_rules! t27multiset {
-	($($t:tt),* $(,)?) => {{
+	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
 		let mut result = $crate::Tile27MultiSet::default();
 		$(
@@ -1040,6 +1075,7 @@ macro_rules! t27multiset {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use std::num::NonZero;
 /// # use riichi::{t, t34multiset};
@@ -1056,7 +1092,7 @@ macro_rules! t27multiset {
 /// ```
 #[macro_export]
 macro_rules! t34multiset {
-	($($t:tt),* $(,)?) => {{
+	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
 		let mut result = $crate::Tile34MultiSet::default();
 		$(
@@ -1070,6 +1106,7 @@ macro_rules! t34multiset {
 ///
 /// ```rust
 /// # #![deny(unused)]
+/// # #![feature(const_default, const_trait_impl)]
 /// #
 /// # use std::num::NonZero;
 /// # use riichi::{t, t37multiset};
@@ -1089,7 +1126,7 @@ macro_rules! t34multiset {
 /// ```
 #[macro_export]
 macro_rules! t37multiset {
-	($($t:tt),* $(,)?) => {{
+	($($t:tt),* $(,)?) => { const {
 		#[allow(unused_mut)]
 		let mut result = $crate::Tile37MultiSet::default();
 		$(
@@ -1103,9 +1140,15 @@ macro_rules! assert_size_of {
 	($ty:ty, $size:expr) => { const _: () = if core::mem::size_of::<$ty>() != $size { let _: () = [][core::mem::size_of::<$ty>()]; }; };
 }
 
+macro_rules! minmax {
+	($self:ident, $i:literal, $j:literal) => {
+		[$self[$i], $self[$j]] = core::cmp::minmax($self[$i], $self[$j]);
+	};
+}
+
 mod array_vec;
 pub use array_vec::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 };
 use array_vec::ArrayVecIntoCombinations;
 
@@ -1165,12 +1208,14 @@ pub use tile_multi_set::{
 
 mod tile_set;
 pub use tile_set::{
-	Tile27Set, Tile27SetIntoIter,
-	Tile34Set, Tile34SetIntoIter,
-	Tile37Set, Tile37SetIntoIter,
+	TileSet, TileSetElement, TileSetIntoIter,
+	Tile27Set, Tile27SetElement, Tile27SetIntoIter,
+	Tile34Set, Tile34SetElement, Tile34SetIntoIter,
+	Tile37Set, Tile37SetElement, Tile37SetIntoIter,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum GameType {
 	/// Standard four-player game.
 	Yonma,
@@ -1179,7 +1224,8 @@ pub enum GameType {
 }
 
 /// Used to identify the type of a meld when parsing an MPSZ string.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum HandMeldType {
 	/// An ankan, indicated by `+`.
 	Ankan,
@@ -1192,7 +1238,8 @@ pub enum HandMeldType {
 /// Indicates where the winning tile was drawn from.
 ///
 /// This can be constructed from a [`WinningTileFrom`] with `.into()`.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TsumoOrRon {
 	/// The tile was drawn from the wall.
 	Tsumo,
@@ -1201,7 +1248,7 @@ pub enum TsumoOrRon {
 }
 
 /// Optimized sorting for some specific types.
-pub trait SortingNetwork {
+pub const trait SortingNetwork {
 	fn sort(&mut self);
 }
 
@@ -1211,13 +1258,20 @@ pub trait SortingNetwork {
 // Specifically, on both x86_64 and RV, the `sort_unstable` codegen ends up using stack space and has many branches,
 // while this three-swap version fits entirely in registers, has no branches, and is shorter to boot (three / five `maxu; minu` pairs on RV).
 
-impl SortingNetwork for [u8; 3] {
+const impl SortingNetwork for [u8; 3] {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 2), (0, 1), (1, 2)] {
-			(self[i], self[j]) = (self[i].min(self[j]), self[i].max(self[j]));
-		}
+		minmax!(self, 0, 2);
+		minmax!(self, 0, 1);
+		minmax!(self, 1, 2);
 	}
 }
 
-// Used by `make_hand!` expansion.
-pub use generic_array;
+const impl SortingNetwork for [u8; 4] {
+	fn sort(&mut self) {
+		minmax!(self, 0, 2);
+		minmax!(self, 1, 3);
+		minmax!(self, 0, 1);
+		minmax!(self, 2, 3);
+		minmax!(self, 1, 2);
+	}
+}
