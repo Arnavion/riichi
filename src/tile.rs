@@ -1,9 +1,3 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	typenum::{U4, U5},
-};
-
 use crate::{
 	ArrayVec,
 	GameType,
@@ -25,7 +19,8 @@ use crate::{
 // but with the LSB set.
 
 /// A tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum Tile {
 	Man1 = 0x00,
@@ -78,7 +73,8 @@ pub enum Tile {
 }
 
 /// A number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum NumberTile {
 	Man1 = 0x00,
@@ -117,7 +113,8 @@ pub enum NumberTile {
 }
 
 /// A number tile that is the lowest tile of a shun.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunLowTile {
 	Man1 = 0x00,
@@ -150,7 +147,8 @@ pub enum ShunLowTile {
 }
 
 /// A number tile that is the lowest tile of a shun, plus a bit that is set if the shun contains a `FiveRed`.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunLowTileAndHasFiveRed {
 	Man1 = 0x00,
@@ -186,7 +184,8 @@ pub enum ShunLowTileAndHasFiveRed {
 }
 
 /// A wind tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum WindTile {
 	/// East
@@ -200,7 +199,8 @@ pub enum WindTile {
 }
 
 /// A dragon tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum DragonTile {
 	/// White
@@ -212,14 +212,16 @@ pub enum DragonTile {
 }
 
 /// A number tile broken down into its suit and number.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct NumberTileClassified {
 	pub suit: NumberSuit,
 	pub number: Number,
 }
 
 /// The suit of a number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum NumberSuit {
 	/// Characters
@@ -231,7 +233,8 @@ pub enum NumberSuit {
 }
 
 /// The value of a number tile.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum Number {
 	One = 0x00,
@@ -247,7 +250,8 @@ pub enum Number {
 }
 
 /// The value of a [`ShunLowTile`].
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunLowNumber {
 	One = 0x00,
@@ -261,7 +265,7 @@ pub enum ShunLowNumber {
 }
 
 /// A trait for comparing tiles based on treating `Five` and `FiveRed` tiles as equal.
-pub trait CmpIgnoreRed {
+pub const trait CmpIgnoreRed {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering;
 
 	fn eq_ignore_red(&self, other: &Self) -> bool {
@@ -382,8 +386,9 @@ impl Tile {
 	///
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
-	pub fn parse_run_until<N>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()> where N: ArrayLength {
-		#[derive(Clone, Copy, Debug)]
+	pub fn parse_run_until<const N: usize>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()> {
+		#[derive(Copy, Debug)]
+		#[derive_const(Clone)]
 		enum Op {
 			// An error variant is defined here because the alternative is `OPS: [Option<Op>; 256]` which ends up encoding `None::<Op>` as `0b03`.
 			// It's nicer to encode the error case as `0b00` since most of the table will be filled with that.
@@ -487,7 +492,7 @@ impl Tile {
 	/// assert_eq!(t!(2m).indicates_dora(GameType::Yonma), t!(3m));
 	/// assert_eq!(t!(1m).indicates_dora(GameType::Sanma), t!(9m));
 	/// ```
-	pub fn indicates_dora(self, game_type: GameType) -> Self {
+	pub const fn indicates_dora(self, game_type: GameType) -> Self {
 		// Micro-optimization: This generates branchless code and avoids the need for a LUT.
 		//
 		// Tested exhaustively in the `tile_indicates_dora` test.
@@ -530,6 +535,7 @@ impl Tile {
 	pub(crate) const fn make_red(self) -> Option<Self> {
 		const FIVES: Tile37Set = t37set! { 5m, 5p, 5s };
 
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if FIVES.contains(self) {
 			let result = (self as u8) | 0b1;
 			let result = unsafe { core::mem::transmute::<u8, Self>(result) };
@@ -541,6 +547,7 @@ impl Tile {
 	}
 
 	pub(crate) const fn kan_representative(t1: Self, t2: Self, t3: Self, t4: Self) -> Option<Self> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if is_kan(t1, t2, t3, t4) {
 			let tile = t1 as u8 | t2 as u8 | t3 as u8 | t4 as u8;
 			Some(unsafe { core::mem::transmute::<u8, Self>(tile) })
@@ -550,6 +557,7 @@ impl Tile {
 		}
 	}
 	pub(crate) const fn kou_representative(t1: Self, t2: Self, t3: Self) -> Option<Self> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if is_kou(t1, t2, t3) {
 			let tile = t1 as u8 | t2 as u8 | t3 as u8;
 			Some(unsafe { core::mem::transmute::<u8, Self>(tile) })
@@ -559,7 +567,8 @@ impl Tile {
 		}
 	}
 
-	pub(crate) fn pair_representative(t1: Self, t2: Self) -> Option<Self> {
+	pub(crate) const fn pair_representative(t1: Self, t2: Self) -> Option<Self> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if t1.eq_ignore_red(&t2) {
 			let tile = t1 as u8 | t2 as u8;
 			Some(unsafe { core::mem::transmute::<u8, Self>(tile) })
@@ -568,9 +577,27 @@ impl Tile {
 			None
 		}
 	}
+
+	pub(crate) fn suits4<const N: usize>(ts: core::simd::Simd<u8, N>) -> core::simd::Simd<u8, N> {
+		t![1p, 1s, E].into_iter()
+			.map(|t| core::simd::Select::select(
+				core::simd::cmp::SimdPartialOrd::simd_ge(ts, core::simd::Simd::splat(t as u8)),
+				core::simd::Simd::splat(1_u8),
+				core::simd::Simd::splat(0_u8),
+			))
+			.sum()
+	}
+
+	pub(crate) fn suits5<const N: usize>(ts: core::simd::Simd<u8, N>) -> core::simd::Simd<u8, N> {
+		Self::suits4(ts) + core::simd::Select::select(
+			core::simd::cmp::SimdPartialOrd::simd_ge(ts, core::simd::Simd::splat(t!(Wh) as u8)),
+			core::simd::Simd::splat(1_u8),
+			core::simd::Simd::splat(0_u8),
+		)
+	}
 }
 
-impl CmpIgnoreRed for Tile {
+const impl CmpIgnoreRed for Tile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -599,25 +626,25 @@ impl core::fmt::Display for Tile {
 	}
 }
 
-impl From<NumberTile> for Tile {
+const impl From<NumberTile> for Tile {
 	fn from(t: NumberTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<ShunLowTile> for Tile {
+const impl From<ShunLowTile> for Tile {
 	fn from(t: ShunLowTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<WindTile> for Tile {
+const impl From<WindTile> for Tile {
 	fn from(t: WindTile) -> Self {
 		*t.as_ref()
 	}
 }
 
-impl From<DragonTile> for Tile {
+const impl From<DragonTile> for Tile {
 	fn from(t: DragonTile) -> Self {
 		*t.as_ref()
 	}
@@ -665,34 +692,35 @@ impl core::str::FromStr for Tile {
 	}
 }
 
-impl SortingNetwork for [Tile; 3] {
+const impl SortingNetwork for [Tile; 3] {
 	fn sort(&mut self) {
-		let this = unsafe { &mut *(<*mut Self>::cast::<[u8; 3]>(self)) };
-		SortingNetwork::sort(this);
+		minmax!(self, 0, 2);
+		minmax!(self, 0, 1);
+		minmax!(self, 1, 2);
 	}
 }
 
-impl SortingNetwork for GenericArray<Tile, U4> {
+const impl SortingNetwork for [Tile; 4] {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 2), (1, 3), (0, 1), (2, 3), (1, 2)] {
-			let a = self[i] as u8;
-			let b = self[j] as u8;
-			let (a, b) = (a.min(b), a.max(b));
-			self[i] = unsafe { core::mem::transmute::<u8, Tile>(a) };
-			self[j] = unsafe { core::mem::transmute::<u8, Tile>(b) };
-		}
+		minmax!(self, 0, 2);
+		minmax!(self, 1, 3);
+		minmax!(self, 0, 1);
+		minmax!(self, 2, 3);
+		minmax!(self, 1, 2);
 	}
 }
 
-impl SortingNetwork for GenericArray<Tile, U5> {
+const impl SortingNetwork for [Tile; 5] {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 3), (1, 4), (0, 2), (1, 3), (0, 1), (2, 4), (1, 2), (3, 4), (2, 3)] {
-			let a = self[i] as u8;
-			let b = self[j] as u8;
-			let (a, b) = (a.min(b), a.max(b));
-			self[i] = unsafe { core::mem::transmute::<u8, Tile>(a) };
-			self[j] = unsafe { core::mem::transmute::<u8, Tile>(b) };
-		}
+		minmax!(self, 0, 3);
+		minmax!(self, 1, 4);
+		minmax!(self, 0, 2);
+		minmax!(self, 1, 3);
+		minmax!(self, 0, 1);
+		minmax!(self, 2, 4);
+		minmax!(self, 1, 2);
+		minmax!(self, 3, 4);
+		minmax!(self, 2, 3);
 	}
 }
 
@@ -775,11 +803,6 @@ impl NumberTile {
 	pub const fn number(self) -> Number {
 		// Micro-optimization: Doing the math in `usize` avoids rustc inserting `zext.b` on RV to clamp intermediate results to `u8`.
 
-		// TODO(rustup): Replace with `.min()` when `usize: impl const Ord` becomes stable.
-		const fn const_min(a: usize, b: usize) -> usize {
-			if a < b { a } else { b }
-		}
-
 		// Micro-optimization: There are three ways to normalize `n = self as usize` into the manzu range.
 		//
 		// - Tree subtraction and minimum: `let n2 = n.min(n.wrapping_sub(0x12)); let n = n2.min(n.wrapping_sub(0x24));`
@@ -799,13 +822,7 @@ impl NumberTile {
 		//
 		// Ref: https://gcc.godbolt.org/z/oYscP7TWs
 		let n = self as usize - t!(1m) as usize;
-		let n = const_min(
-			const_min(
-				n,
-				n.wrapping_sub(t!(1p) as usize - t!(1m) as usize),
-			),
-			n.wrapping_sub(t!(1s) as usize - t!(1m) as usize),
-		);
+		let n = n.min(n.wrapping_sub(t!(1p) as usize - t!(1m) as usize)).min(n.wrapping_sub(t!(1s) as usize - t!(1m) as usize));
 		let n = n + Number::One as usize;
 		// SAFETY: Lines up with the explicit values given to the `NumberTile`, `Number` and `NumberSuit` variants,
 		// and tested exhaustively in the `number_tile_convert_classified` test.
@@ -827,6 +844,7 @@ impl NumberTile {
 			2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s,
 		};
 
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if HAS_PREVIOUS.contains(self) {
 			let prev = (self as u8 & !0b1) - 2;
 			let prev = unsafe { core::mem::transmute::<u8, Self>(prev) };
@@ -846,6 +864,7 @@ impl NumberTile {
 			1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s,
 		};
 
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if HAS_NEXT.contains(self) {
 			let next = (self as u8 & !0b1) + 2;
 			let next = unsafe { core::mem::transmute::<u8, Self>(next) };
@@ -855,52 +874,18 @@ impl NumberTile {
 			None
 		}
 	}
-
-	pub(crate) fn is_in_suit(self, suit: NumberSuit) -> Option<Number> {
-		let suit_start = (suit as u8 - NumberSuit::Man as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + tn!(1m) as u8;
-		let suit_end = suit_start + (tn!(1p) as u8 - tn!(1m) as u8);
-		let this = self as u8;
-		if (suit_start..suit_end).contains(&this) {
-			let number = this - suit_start + Number::One as u8;
-			let number = unsafe { core::mem::transmute::<u8, Number>(number) };
-			Some(number)
-		}
-		else {
-			None
-		}
-	}
-
-	// TODO(rustup): Inline this into `From<NumberTileClassified>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from(t: NumberTileClassified) -> Self {
-		let NumberTileClassified { suit, number } = t;
-		// Using a `match` for every combination is safer but generates branches based on `suit`
-		// that add constant 0x12 or 0x24 instead of the multiplication by 0x12 (via `lea` / `sh*add`), so we do it manually.
-		//
-		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
-		// and tested exhaustively in the `number_tile_convert_classified` test.
-		let t = (suit as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + (number as u8 - Number::One as u8) + tn!(1m) as u8;
-		unsafe { core::mem::transmute::<u8, Self>(t) }
-	}
-
-	// TODO(rustup): Inline this into `From<ShunLowTile>` impl when `const impl From` is possible.
-	pub(crate) const fn const_from_slt(t: ShunLowTile) -> Self {
-		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `ShunLowTile` is valid for `NumberTile`.
-		//
-		// Tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
-		unsafe { *<*const _>::cast(&raw const t) }
-	}
 }
 
-impl AsRef<Tile> for NumberTile {
+const impl AsRef<Tile> for NumberTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `NumberTile` is valid for `Tile`.
 		//
-		// Tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
+		// Tested exhaustively in the `number_tile_as_ref_and_from` test.
 		unsafe { &*<*const _>::cast(self) }
 	}
 }
 
-impl CmpIgnoreRed for NumberTile {
+const impl CmpIgnoreRed for NumberTile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -922,13 +907,20 @@ impl core::fmt::Display for NumberTile {
 	}
 }
 
-impl From<NumberTileClassified> for NumberTile {
+const impl From<NumberTileClassified> for NumberTile {
 	fn from(t: NumberTileClassified) -> Self {
-		Self::const_from(t)
+		let NumberTileClassified { suit, number } = t;
+		// Using a `match` for every combination is safer but generates branches based on `suit`
+		// that add constant 0x12 or 0x24 instead of the multiplication by 0x12 (via `lea` / `sh*add`), so we do it manually.
+		//
+		// SAFETY: Lines up with the explicit values given to the `Number` and `NumberSuit` variants,
+		// and tested exhaustively in the `number_tile_convert_classified` test.
+		let t = (suit as u8) * (tn!(1p) as u8 - tn!(1m) as u8) + (number as u8 - Number::One as u8) + tn!(1m) as u8;
+		unsafe { core::mem::transmute::<u8, Self>(t) }
 	}
 }
 
-impl From<ShunLowTile> for NumberTile {
+const impl From<ShunLowTile> for NumberTile {
 	fn from(t: ShunLowTile) -> Self {
 		*AsRef::as_ref(&t)
 	}
@@ -943,18 +935,19 @@ impl core::str::FromStr for NumberTile {
 	}
 }
 
-impl SortingNetwork for [NumberTile; 3] {
+const impl SortingNetwork for [NumberTile; 3] {
 	fn sort(&mut self) {
-		let this = unsafe { &mut *(<*mut Self>::cast::<[u8; 3]>(self)) };
-		SortingNetwork::sort(this);
+		minmax!(self, 0, 2);
+		minmax!(self, 0, 1);
+		minmax!(self, 1, 2);
 	}
 }
 
-impl TryFrom<Tile> for NumberTile {
+const impl TryFrom<Tile> for NumberTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
-		if t >= t!(1m) && t <= t!(9s) {
+		if (t!(1m)..=t!(9s)).contains(&t) {
 			// SAFETY: Lines up with the explicit values given to the `Tile` and `NumberTile` variants,
 			// and tested exhaustively in the `number_tile_as_ref_and_from_and_try_from` test.
 			let t = unsafe { core::mem::transmute::<u8, Self>(t as u8) };
@@ -968,7 +961,7 @@ impl TryFrom<Tile> for NumberTile {
 
 impl ShunLowTile {
 	pub const fn number(self) -> ShunLowNumber {
-		let number = NumberTile::const_from_slt(self).number();
+		let number = NumberTile::from(self).number();
 		let number = number as u8;
 		unsafe { core::mem::transmute::<u8, ShunLowNumber>(number) }
 	}
@@ -986,23 +979,9 @@ impl ShunLowTile {
 		let next_next = unsafe { core::mem::transmute::<u8, NumberTile>(next_next) };
 		(next, next_next)
 	}
-
-	pub(crate) fn is_in_suit(self, suit: NumberSuit) -> Option<ShunLowNumber> {
-		let suit_start = (suit as u8 - NumberSuit::Man as u8) * (tsl!(1p) as u8 - tsl!(1m) as u8) + tsl!(1m) as u8;
-		let suit_end = suit_start + (tsl!(1p) as u8 - tsl!(1m) as u8);
-		let this = self as u8;
-		if (suit_start..suit_end).contains(&this) {
-			let number = this - suit_start + ShunLowNumber::One as u8;
-			let number = unsafe { core::mem::transmute::<u8, ShunLowNumber>(number) };
-			Some(number)
-		}
-		else {
-			None
-		}
-	}
 }
 
-impl AsRef<Tile> for ShunLowTile {
+const impl AsRef<Tile> for ShunLowTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `ShunLowTile` is valid for `Tile`.
 		//
@@ -1011,7 +990,7 @@ impl AsRef<Tile> for ShunLowTile {
 	}
 }
 
-impl AsRef<NumberTile> for ShunLowTile {
+const impl AsRef<NumberTile> for ShunLowTile {
 	fn as_ref(&self) -> &NumberTile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `ShunLowTile` is valid for `Tile`.
 		//
@@ -1020,7 +999,7 @@ impl AsRef<NumberTile> for ShunLowTile {
 	}
 }
 
-impl CmpIgnoreRed for ShunLowTile {
+const impl CmpIgnoreRed for ShunLowTile {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -1042,7 +1021,7 @@ impl core::fmt::Display for ShunLowTile {
 	}
 }
 
-impl TryFrom<NumberTile> for ShunLowTile {
+const impl TryFrom<NumberTile> for ShunLowTile {
 	type Error = ();
 
 	fn try_from(t: NumberTile) -> Result<Self, Self::Error> {
@@ -1050,7 +1029,7 @@ impl TryFrom<NumberTile> for ShunLowTile {
 	}
 }
 
-impl TryFrom<Tile> for ShunLowTile {
+const impl TryFrom<Tile> for ShunLowTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -1078,7 +1057,8 @@ impl ShunLowTileAndHasFiveRed {
 	/// Construct a `ShunLowTileAndHasFiveRed` using the given three tiles.
 	///
 	/// Returns `Some` if the three tiles form a valid shun, `None` otherwise.
-	pub fn new(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn new(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if is_shun(t1, t2, t3) {
 			let has_five_red = (t1 as u8 & 0b1) | (t2 as u8 & 0b1) | (t3 as u8 & 0b1);
 			let result = t1 as u8 | has_five_red;
@@ -1095,7 +1075,7 @@ impl ShunLowTileAndHasFiveRed {
 		unsafe { core::mem::transmute::<u8, ShunLowTile>(result) }
 	}
 
-	pub(crate) fn shun(self) -> (NumberTile, NumberTile, NumberTile) {
+	pub(crate) const fn shun(self) -> (NumberTile, NumberTile, NumberTile) {
 		const FIVES: Tile27Set = t27set! { 5m, 5p, 5s };
 
 		let is_red = self as u8 & 0b1 != 0;
@@ -1122,7 +1102,8 @@ impl WindTile {
 	/// This takes `u8` so that `ShunLowTileAndHasFiveRed` values can be passed in as-is instead of needing to `.remove_red()` them into a valid `Tile` first.
 	///
 	/// However if `t` is in the range of `(t!(Wh) as u8)..=(t!(R) as u8)` then `t` must have a value corresponding to a `DragonTile`.
-	pub(crate) unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+	pub(crate) const unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if ((t!(E) as u8)..=(t!(N) as u8)).contains(&t) {
 			// SAFETY: Lines up with the explicit values given to the `Tile` and `WindTile` variants,
 			// and tested exhaustively in the `wind_tile_as_ref_and_from` test.
@@ -1135,7 +1116,7 @@ impl WindTile {
 	}
 }
 
-impl AsRef<Tile> for WindTile {
+const impl AsRef<Tile> for WindTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `WindTile` is valid for `Tile`.
 		//
@@ -1165,7 +1146,7 @@ impl core::str::FromStr for WindTile {
 	}
 }
 
-impl TryFrom<Tile> for WindTile {
+const impl TryFrom<Tile> for WindTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -1180,7 +1161,8 @@ impl DragonTile {
 	/// This takes `u8` so that `ShunLowTileAndHasFiveRed` values can be passed in as-is instead of needing to `.remove_red()` them into a valid `Tile` first.
 	///
 	/// However if `t` is in the range of `(t!(Wh) as u8)..=(t!(R) as u8)` then `t` must have a value corresponding to a `DragonTile`.
-	pub(crate) unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+	pub(crate) const unsafe fn try_from_raw(t: u8) -> Result<Self, ()> {
+		// TODO(rustup): Use `bool::then` when that becomes `const fn`.
 		if ((t!(Wh) as u8)..=(t!(R) as u8)).contains(&t) {
 			// SAFETY: Lines up with the explicit values given to the `Tile` and `DragonTile` variants,
 			// and tested exhaustively in the `dragon_tile_as_ref_and_from` test.
@@ -1193,7 +1175,7 @@ impl DragonTile {
 	}
 }
 
-impl AsRef<Tile> for DragonTile {
+const impl AsRef<Tile> for DragonTile {
 	fn as_ref(&self) -> &Tile {
 		// SAFETY: Both are repr(u8) and thus have the same size and alignment, and every bit pattern of `DragonTile` is valid for `Tile`.
 		//
@@ -1223,7 +1205,7 @@ impl core::str::FromStr for DragonTile {
 	}
 }
 
-impl TryFrom<Tile> for DragonTile {
+const impl TryFrom<Tile> for DragonTile {
 	type Error = ();
 
 	fn try_from(t: Tile) -> Result<Self, Self::Error> {
@@ -1238,7 +1220,7 @@ impl core::fmt::Display for NumberTileClassified {
 	}
 }
 
-impl From<NumberTile> for NumberTileClassified {
+const impl From<NumberTile> for NumberTileClassified {
 	fn from(t: NumberTile) -> Self {
 		Self { suit: t.suit(), number: t.number() }
 	}
@@ -1247,7 +1229,7 @@ impl From<NumberTile> for NumberTileClassified {
 impl NumberSuit {
 	/// This exists so that `ShunLowTileAndHasFiveRed` values can be passed in as-is instead of needing to `.remove_red()` them into a valid `Tile` first.
 	pub(crate) const fn of(t: u8) -> Option<Self> {
-		let suit = 3 - (t < t!(1p) as u8) as u8 - (t < t!(1s) as u8) as u8 - (t < t!(E) as u8) as u8;
+		let suit = 3 - u8::from(t < t!(1p) as u8) - u8::from(t < t!(1s) as u8) - u8::from(t < t!(E) as u8);
 		// Micro-optimization: This match is a no-op because rustc encodes `None::<NumberSuit>` as `3` due to niche optimization.
 		//
 		// Also, rustc is smart enough to note that the `_` arm is unreachable for all values of `suit`, so it does not emit a panic for that arm.
@@ -1285,7 +1267,7 @@ impl Number {
 	}
 }
 
-impl CmpIgnoreRed for Number {
+const impl CmpIgnoreRed for Number {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		((*self as u8) >> 1).cmp(&((*other as u8) >> 1))
 	}
@@ -1310,25 +1292,14 @@ impl core::fmt::Display for Number {
 	}
 }
 
-impl From<ShunLowNumber> for Number {
+const impl From<ShunLowNumber> for Number {
 	fn from(n: ShunLowNumber) -> Self {
 		unsafe { core::mem::transmute::<u8, Self>(n as u8) }
 	}
 }
 
-impl ShunLowNumber {
-	pub(crate) const fn shun_rest(self) -> (Number, Number) {
-		let this = self as u8 & !0b1;
-		let next = this + 2;
-		let next = unsafe { core::mem::transmute::<u8, Number>(next) };
-		let next_next = this + 4;
-		let next_next = unsafe { core::mem::transmute::<u8, Number>(next_next) };
-		(next, next_next)
-	}
-}
-
 const fn eq_ignore_red<const N: usize>(a: &[u8; N], b: &[u8; N]) -> bool {
-	// This uses an indexed `while` loop instead of `a.iter().zip(b).fold(...)` so that it can be `const fn`
+	// TODO(rustup): This uses an indexed `while` loop instead of `a.iter().zip(b).fold(...)` so that it can be `const fn`.
 	let mut eq = 0;
 	let mut i = 0;
 	while i < a.len() {
@@ -1352,6 +1323,7 @@ const fn is_shun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> bool {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 

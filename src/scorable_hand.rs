@@ -2,8 +2,8 @@ use crate::{
 	CmpIgnoreRed,
 	DragonTile,
 	HandMeld,
-	Number, NumberSuit, NumberTileClassified, NumberTile,
-	ShunLowNumber, ShunLowTile, ShunLowTileAndHasFiveRed, SortingNetwork,
+	NumberTile,
+	ShunLowTile, ShunLowTileAndHasFiveRed, SortingNetwork,
 	Tile, Tile34Set, TsumoOrRon,
 	WindTile,
 };
@@ -25,7 +25,8 @@ use crate::{
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Ord, PartialOrd)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub enum ScorableHand {
 	/// Regular hand shape containing four melds and one pair.
 	Regular(ScorableHandRegular),
@@ -53,16 +54,17 @@ pub enum ScorableHand {
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Ord, PartialOrd)]
+#[derive_const(Clone, Eq, PartialEq)]
 // Enforce field order.
 //
 // `m1`, `m2` and `m3` are `repr(align(2))`, m4 is `repr(align(4))`, and `pair` is `repr(align(1))`.
 // Without `repr(C)`, rustc lays them out as `m4:m1:m2:m3:pair`, which has the diadvantage that `m4` comes before the other `m*`s.
-// This means any operation that wants to vectorize over all the melds ignoring the fourth meld's wait, like operations on `self.melds()`,
+// This means any operation that wants to vectorize over all the melds ignoring the fourth meld's wait, like operations on `self.melds_simd()`,
 // must do reads at offsets of 0, 4, 6, 8 which does not stride.
 //
-// By using `repr(C)` we can force the fields to be laid out in order so that `self.melds()` can interpret the 2..10 bytes of `self` as `[ScorableHandMeld; 4]`.
-// Also `self.melds_and_pair()` can interpret the 0..10 bytes as `[ScorableHandMeld; 5]`.
+// By using `repr(C)` we can force the fields to be laid out in order so that `self.melds_simd()` can interpret the 2..10 bytes of `self` as `[ScorableHandMeld; 4]`.
+// Also `self.melds_and_pair_simd()` can interpret the 0..10 bytes as `[ScorableHandMeld; 5]`.
 #[repr(C)]
 pub struct ScorableHandRegular {
 	pub pair: ScorableHandRegularPair,
@@ -85,7 +87,8 @@ pub struct ScorableHandRegular {
 /// - There are not more of any one [`Tile`] than are present in a game.
 ///
 /// If any of these expectations are violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Ord, PartialOrd)]
+#[derive_const(Eq, PartialEq)]
 #[repr(transparent)]
 pub struct ScorableHandChiitoi(pub [ScorableHandPair; 7]);
 
@@ -94,20 +97,23 @@ pub struct ScorableHandChiitoi(pub [ScorableHandPair; 7]);
 /// This type expects that its variant data is consistent. This means that the `duplicate` tile is valid for a kokushi musou hand.
 ///
 /// If this expectation is violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Ord, PartialOrd)]
+#[derive_const(Clone, Eq, PartialEq)]
 pub struct ScorableHandKokushiMusou {
 	pub duplicate: Tile,
 	pub was_juusanmen_wait: bool,
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(C, align(2))] // See comment in `ScorableHandMeld::cmp`.
 pub struct ScorableHandRegularPair {
 	pub tag: ScorableHandRegularPairTag,
 	pub inner: ScorableHandPair,
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ScorableHandRegularPairTag {
 	// Same tag as `ScorableHandMeld::Ankou`, so that a pair can pretend to be an ankou for algorithms that benefit from it (`fn chanta_routou()`).
@@ -127,7 +133,8 @@ pub enum ScorableHandRegularPairTag {
 /// This type expects that its variant data is consistent. This means that there are not more of any one [`Tile`] than are present in a game.
 ///
 /// If this expectation is violated, the program may have undefined behavior.
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(C, u8, align(2))] // See comment in `ScorableHandMeldSortCriteria::new`.
 pub enum ScorableHandMeld {
 	/// Closed quad formed by kan.
@@ -170,7 +177,8 @@ pub enum ScorableHandMeld {
 /// This type expects that its variant data is consistent. This means that there are not more of any one [`Tile`] than are present in a game.
 ///
 /// If this expectation is violated, the program may have undefined behavior.
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(C, u8, align(4))] // See comment in `ScorableHandFourthMeld::cmp`.
 pub enum ScorableHandFourthMeld {
 	/// Closed quad formed by kan.
@@ -204,13 +212,15 @@ pub enum ScorableHandFourthMeld {
 	Minjun(ShunLowTileAndHasFiveRed, ShunWait) = 5,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum KanWait {
 	Tanki = 0,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum KouWait {
 	/// This meld was already complete. One of the tiles of the [`ScorableHandRegular::pair`] was the wait.
@@ -225,7 +235,8 @@ pub enum KouWait {
 	Shanpon = 1,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ShunWait {
 	/// This meld was already complete. One of the tiles of the [`ScorableHandRegular::pair`] was the wait.
@@ -264,7 +275,8 @@ pub enum ShunWait {
 /// This type expects that its variant data is consistent. This means that there are not more of any one [`Tile`] than are present in a game.
 ///
 /// If this expectation is violated, the program may have undefined behavior.
-#[derive(Clone, Copy, Eq)]
+#[derive(Copy)]
+#[derive_const(Clone, Eq)]
 #[repr(transparent)]
 pub struct ScorableHandPair(pub Tile);
 
@@ -331,31 +343,26 @@ impl ScorableHandRegular {
 		unsafe { &*<*const ScorableHandMeld>::cast::<[ScorableHandMeld; 4]>(&raw const self.m1) }
 	}
 
-	const fn melds_types(&self) -> [u8; 4] {
+	fn melds_simd(&self) -> (core::simd::Simd<u8, 4>, core::simd::Simd<u8, 4>) {
 		let this = unsafe { &*<*const Self>::cast::<[u8; 10]>(self) };
-		[this[2], this[4], this[6], this[8]]
+		let this = core::simd::Simd::<_, 8>::from_slice(&this[2..]);
+		let ds = core::simd::simd_swizzle!(this, [0, 2, 4, 6]);
+		let ts = core::simd::simd_swizzle!(this, [1, 3, 5, 7]);
+		(ds, ts)
 	}
 
-	const fn melds_tiles(&self) -> [u8; 4] {
+	fn melds_and_pair_simd(&self) -> (core::simd::Simd<u8, 5>, core::simd::Simd<u8, 5>) {
 		let this = unsafe { &*<*const Self>::cast::<[u8; 10]>(self) };
-		[this[3], this[5], this[7], this[9]]
-	}
-
-	const fn melds_and_pair(&self) -> &[ScorableHandMeld; 5] {
-		unsafe { &*<*const Self>::cast::<[ScorableHandMeld; 5]>(self) }
-	}
-
-	const fn melds_and_pair_tiles(&self) -> [u8; 5] {
-		let this = unsafe { &*<*const Self>::cast::<[u8; 10]>(self) };
-		[this[1], this[3], this[5], this[7], this[9]]
+		let this = core::simd::Simd::from_array(*this);
+		let ds = core::simd::simd_swizzle!(this, [0, 2, 4, 6, 8]);
+		let ts = core::simd::simd_swizzle!(this, [1, 3, 5, 7, 9]);
+		(ds, ts)
 	}
 
 	pub(crate) fn is_menzen(&self) -> bool {
-		let Self { m1, m2, m3, m4, .. } = self;
-		// Note that `m4.is_menzen()` is *not* the same as `ScorableHandMeld::from(*m4).is_menzen()`.
-		// If `m4` was completed by ron, the latter returns `true` because the hand is still closed,
-		// but the former returns `false` because the meld itself is open.
-		m1.is_menzen() & m2.is_menzen() & m3.is_menzen() & m4.is_menzen()
+		let ds = self.melds_simd().0;
+		let is_closed = core::simd::num::SimdUint::reduce_or(ds.extract::<0, 3>()) & 0b1 == 0b0;
+		is_closed & self.m4.is_menzen()
 	}
 
 	pub(crate) fn is_pinfu(&self, round_wind: WindTile, seat_wind: WindTile) -> bool {
@@ -371,536 +378,298 @@ impl ScorableHandRegular {
 		//             pair,
 		//         } if pair.inner.num_yakuhai(round_wind, seat_wind) == 0,
 		//     )
-		let Self { m1, m2, m3, m4, pair } = self;
-		let [m1_d, _] = m1.parts();
-		let [m2_d, _] = m2.parts();
-		let [m3_d, _] = m3.parts();
-		let [_, _, m4_w] = m4.parts();
-		#[expect(clippy::needless_bitwise_bool)]
-		{
-			// Self::Anjun == 4
-			(m1_d == 4) & (m2_d == 4) & (m3_d == 4) &
-				// Don't need to check `m4_d == Anjun || m4_d == Minjun`, because the `ShunWait::Ryanmen*` values are not used by any `KanWait` or `KouWait` vriants.
-				(m4_w == ShunWait::RyanmenLow as u8 || m4_w == ShunWait::RyanmenHigh as u8) &
-				(pair.inner.num_yakuhai(round_wind, seat_wind) == 0)
-		}
+		let ds = self.melds_simd().0;
+		let [_, _, m4_w] = self.m4.parts();
+		// Self::Anjun == 4
+		core::simd::cmp::SimdPartialEq::simd_eq(ds.extract::<0, 3>(), core::simd::Simd::splat(4)).all() &&
+			// Don't need to check `m4_d == Anjun || m4_d == Minjun`, because the `ShunWait::Ryanmen*` values are not used by any `KanWait` or `KouWait` vriants.
+			(m4_w == ShunWait::RyanmenLow as u8 || m4_w == ShunWait::RyanmenHigh as u8) &&
+			(self.pair.inner.num_yakuhai(round_wind, seat_wind) == 0)
 	}
 
 	pub(crate) fn peikou_isshoku_jun(&self) -> PeikouIsshokuJun {
-		let Self { m1, m2, m3, m4, .. } = self;
-		PeikouIsshokuJun::new(*m1, *m2, *m3, *m4, self.is_menzen())
+		let (ds, ts) = self.melds_simd();
+		PeikouIsshokuJun::new(ds, ts, self.is_menzen())
 	}
 
 	pub(crate) fn chanta_routou(&self) -> ChantaRoutou {
 		const SHUN_TERMINALS: Tile34Set = t34set! { 1m, 7m, 1p, 7p, 1s, 7s };
 
-		cfg_select! {
-			all(target_arch = "riscv64", target_feature = "v") => {
-				let result: u8;
-				unsafe {
-					core::arch::asm!(
-						// let chanta_routou_other /* : v12:v12 */ = ChantaRoutou::other();
-						"vsetivli zero, 5, e8, m1, ta, ma",
-						"vmv.v.i v12, {chanta_routou_other}",
+		let (ds, ts) = self.melds_and_pair_simd();
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
 
-						// let ds: v4:v4;
-						// let ts: v5:v5;
-						"vlseg2e8.v v4, ({ms})",
+		let is_shun = core::simd::cmp::SimdPartialOrd::simd_ge(ds, core::simd::Simd::splat(4));
+		let shun_terminals_contains_t = core::simd::cmp::SimdPartialEq::simd_ne(masks & SHUN_TERMINALS.simd_splat(), core::simd::Simd::splat(0));
+		let kou_kan_terminals_contains_t = core::simd::cmp::SimdPartialEq::simd_ne(masks & Tile34Set::TERMINALS.simd_splat(), core::simd::Simd::splat(0));
+		let kou_kan_honors_contains_t = core::simd::cmp::SimdPartialEq::simd_ne(masks & Tile34Set::HONORS.simd_splat(), core::simd::Simd::splat(0));
+		let chanta_routous = core::simd::Select::select(
+			is_shun,
+			core::simd::Select::select(
+				shun_terminals_contains_t,
+				core::simd::Simd::splat(ChantaRoutou::has_terminals().0),
+				core::simd::Simd::splat(ChantaRoutou::other().0),
+			),
+			core::simd::Select::select(
+				kou_kan_terminals_contains_t,
+				core::simd::Simd::splat(ChantaRoutou::all_terminals().0),
+				core::simd::Select::select(
+					kou_kan_honors_contains_t,
+					core::simd::Simd::splat(ChantaRoutou::all_honors().0),
+					core::simd::Simd::splat(ChantaRoutou::other().0),
+				),
+			),
+		);
 
-						// let offsets /* : v5:v5 */ = ts - t!(1m) as u8;
-						"vadd.vi v5, v5, {t1m}",
-						// let offsets /* : v5:v5 */ = offsets >> 1;
-						"vsrl.vi v5, v5, 1",
-						// let ts /* : v16:v19 */ = ts.cast::<u64>();
-						"vsetvli zero, zero, e64, m4, ta, ma",
-						"vzext.vf8 v16, v5",
-						// let masks /* : v8:v11 */ = 1 << ts;
-						"vmv.v.i v8, 1",
-						"vsll.vv v8, v8, v16",
-
-						// let shun_terminals_contains_t /* : v0:v0 */ = (masks & SHUN_TERMINALS) != 0;
-						"vand.vx v16, v8, {shun_terminals}",
-						"vmsne.vi v0, v16, 0",
-						// let temp1 /* : v13:v13 */ = select(shun_terminals_contains_t, chanta_routou_has_terminals, chanta_routou_other);
-						"vsetvli zero, zero, e8, m1, ta, ma",
-						"vmerge.vim v13, v12, {chanta_routou_has_terminals}, v0",
-
-						// let kou_kan_honors_contains_t /* : v0:v0 */ = (masks & Tile34Set::HONORS) != 0;
-						"vsetvli zero, zero, e64, m4, ta, ma",
-						"vand.vx v16, v8, {kou_kan_honors}",
-						"vmsne.vi v0, v16, 0",
-						// let temp2 /* : v12:v12 */ = select(kou_kan_honors_contains_t, chanta_routou_all_honors, chanta_routou_other);
-						"vsetvli zero, zero, e8, m1, ta, ma",
-						"vmerge.vim v12, v12, {chanta_routou_all_honors}, v0",
-
-						// let kou_kan_terminals_contains_t /* : v0:v0 */ = (masks & Tile34Set::TERMINALS) != 0;
-						"vsetvli zero, zero, e64, m4, ta, ma",
-						"vand.vx v16, v8, {kou_kan_terminals}",
-						"vmsne.vi v0, v16, 0",
-						// let temp3 /* : v12:v12 */ = select(kou_kan_terminals_contains_t, chanta_routou_all_terminals, temp2);
-						"vsetvli zero, zero, e8, m1, ta, ma",
-						"vmerge.vim v12, v12, {chanta_routou_all_terminals}, v0",
-
-						// let is_shun /* : v0:v0 */ = ds >= 4;
-						"vmsgeu.vi v0, v4, 4",
-						// let chanta_routous /* : v8:v8 */ = select(is_shun, temp1, temp3);
-						"vmerge.vvm v8, v12, v13, v0",
-
-						// let result = chanta_routous.reduce_or();
-						"vredor.vs v9, v8, v8",
-						"vmv.x.s {result}, v9",
-
-						ms = in(reg) self,
-						t1m = const -(t!(1m) as i8),
-						shun_terminals = in(reg) SHUN_TERMINALS.present,
-						kou_kan_terminals = in(reg) Tile34Set::TERMINALS.present,
-						kou_kan_honors = in(reg) Tile34Set::HONORS.present,
-						chanta_routou_has_terminals = const ChantaRoutou::has_terminals().0,
-						chanta_routou_all_terminals = const ChantaRoutou::all_terminals().0,
-						chanta_routou_all_honors = const ChantaRoutou::all_honors().0,
-						chanta_routou_other = const ChantaRoutou::other().0,
-						result = lateout(reg) result,
-						out("v0") _,
-						out("v4") _,
-						out("v5") _,
-						out("v8") _,
-						out("v9") _,
-						out("v10") _,
-						out("v11") _,
-						out("v12") _,
-						out("v13") _,
-						out("v14") _,
-						out("v15") _,
-						out("v16") _,
-						out("v17") _,
-						out("v18") _,
-						out("v19") _,
-						options(nostack),
-					);
-				}
-				ChantaRoutou(result)
-			},
-
-			_ => {
-				fn chanta_routou(m: ScorableHandMeld) -> ChantaRoutou {
-					let (t, is_shun) = match m {
-						ScorableHandMeld::Ankan(t) |
-						ScorableHandMeld::Minkan(t) |
-						ScorableHandMeld::Ankou(t) |
-						ScorableHandMeld::Minkou(t) => (t, false),
-						ScorableHandMeld::Anjun(t) |
-						ScorableHandMeld::Minjun(t) => (t.remove_red().into(), true),
-					};
-
-					// Micro-optimization: `if is_shun { ... } else { ... } generates a branch on `discriminant(&self) & 0b100 == 0`.
-					// Using `select_unpredictable` generate branchless selects (with that same condition) instead.
-					core::hint::select_unpredictable(
-						is_shun,
-						core::hint::select_unpredictable(
-							SHUN_TERMINALS.contains(t),
-							ChantaRoutou::has_terminals(),
-							ChantaRoutou::other()
-						),
-						core::hint::select_unpredictable(
-							Tile34Set::TERMINALS.contains(t),
-							ChantaRoutou::all_terminals(),
-							core::hint::select_unpredictable(
-								Tile34Set::HONORS.contains(t),
-								ChantaRoutou::all_honors(),
-								ChantaRoutou::other(),
-							),
-						),
-					)
-				}
-
-				self.melds_and_pair().iter().fold(ChantaRoutou(0), |acc, &m| acc | chanta_routou(m))
-			},
-		}
+		let result = core::simd::num::SimdUint::reduce_or(chanta_routous);
+		ChantaRoutou(result)
 	}
 
 	pub(crate) fn num_wind_yakuhai(&self, wind: WindTile, round_wind: WindTile, seat_wind: WindTile) -> u8 {
-		// Micro-optimization: `.contains()` generates a branch for each element test.
-		#[expect(clippy::manual_contains)]
-		let is_wind = self.melds_tiles().iter().any(|&t| t == wind as u8);
+		let ts = self.melds_simd().1;
+		let is_wind = core::simd::cmp::SimdPartialEq::simd_eq(ts, core::simd::Simd::splat(wind as u8)).any();
 		let num_round_winds = u8::from(wind == round_wind);
 		let num_seat_winds = u8::from(wind == seat_wind);
 		core::hint::select_unpredictable(is_wind, num_round_winds + num_seat_winds, 0)
 	}
 
 	pub(crate) fn is_dragon_yakuhai(&self, dragon: DragonTile) -> bool {
-		// Micro-optimization: `.contains()` generates a branch for each element test.
-		#[expect(clippy::manual_contains)]
-		self.melds_tiles().iter().any(|&t| t == dragon as u8)
+		let ts = self.melds_simd().1;
+		let is_dragon = core::simd::cmp::SimdPartialEq::simd_eq(ts, core::simd::Simd::splat(dragon as u8));
+		is_dragon.any()
 	}
 
 	pub(crate) fn is_shiiaru_raotai(&self) -> bool {
-		let is_fully_open = self.melds().iter().all(|m| matches!(m, ScorableHandMeld::Ankan(_) | ScorableHandMeld::Minkan(_) | ScorableHandMeld::Minkou(_) | ScorableHandMeld::Minjun(_)));
+		let ds = self.melds_simd().0;
+		let is_ankan = core::simd::cmp::SimdPartialEq::simd_eq(ds, core::simd::Simd::splat(0));
+		let is_open = core::simd::cmp::SimdPartialEq::simd_ne(ds & core::simd::Simd::splat(0b1), core::simd::Simd::splat(0b0));
+		let is_fully_open = (is_ankan | is_open).all();
 		is_fully_open & self.m4.is_tanki()
 	}
 
 	pub(crate) fn iisou(&self) -> Iisou {
-		Iisou::new(self.melds_and_pair())
+		let (ds, ts) = self.melds_and_pair_simd();
+		Iisou::new(ds, ts)
 	}
 
 	pub(crate) fn is_sanshoku_doujun(&self) -> bool {
-		self.is_sanshoku(|m| {
-			let (ScorableHandMeld::Anjun(t) | ScorableHandMeld::Minjun(t)) = m else { return None; };
-			Some(t.remove_red().into())
-		})
+		let (ds, ts) = self.melds_simd();
+		let is_shun = core::simd::cmp::SimdPartialOrd::simd_ge(ds, core::simd::Simd::splat(4));
+		Self::is_sanshoku(is_shun, ts)
 	}
 
 	pub(crate) fn ittsuukansen(&self) -> IttsuuKanSen {
-		IttsuuKanSen::new(self.melds_and_pair(), self.is_menzen())
+		let (ds, ts) = self.melds_and_pair_simd();
+		IttsuuKanSen::new(ds, ts, self.is_menzen())
 	}
 
 	pub(crate) fn is_toitoi(&self) -> bool {
-		self.melds_types().iter().all(|&d| d <= 3)
+		core::simd::num::SimdUint::reduce_or(self.melds_simd().0) <= 3
 	}
 
 	pub(crate) fn num_ankou(&self) -> NumAnkou {
-		NumAnkou::new(self.melds_types(), self.m4.is_tanki())
+		NumAnkou::new(self.melds_simd().0, self.m4.is_tanki())
 	}
 
 	pub(crate) fn is_sanshoku_doukou(&self) -> bool {
-		self.is_sanshoku(|m| {
-			let (
-				ScorableHandMeld::Ankan(t) |
-				ScorableHandMeld::Minkan(t) |
-				ScorableHandMeld::Ankou(t) |
-				ScorableHandMeld::Minkou(t)
-			) = m else { return None; };
-			let t = NumberTile::try_from(*t).ok()?;
-			Some(t)
-		})
+		let (ds, ts) = self.melds_simd();
+		let is_kou_kan = core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(3));
+		let is_number_tile = core::simd::cmp::SimdPartialOrd::simd_le(ts, core::simd::Simd::splat(t!(9s) as u8));
+		Self::is_sanshoku(is_kou_kan & is_number_tile, ts)
 	}
 
 	pub(crate) fn num_kantsu(&self) -> NumKantsu {
-		NumKantsu::new(self.melds_types())
+		NumKantsu::new(self.melds_simd().0)
 	}
 
 	pub(crate) fn suushii_sangen(&self) -> SuushiiSangen {
-		SuushiiSangen::new(self.melds_tiles(), self.pair.inner.0)
+		SuushiiSangen::new(self.melds_simd().1, self.pair.inner.0)
 	}
 
 	pub(crate) fn num_renkou(&self) -> NumRenkou {
-		NumRenkou::new(self)
+		let (ds, ts) = self.melds_simd();
+		NumRenkou::new(ds, ts)
 	}
 
 	pub(crate) fn is_akadora_sanshoku(&self) -> bool {
-		is_akadora_sanshoku(&self.melds_and_pair_tiles())
+		is_akadora_sanshoku(self.melds_and_pair_simd().1)
 	}
 
 	pub(crate) fn is_uumensai(&self) -> bool {
-		let mut mask = 0b00000;
-		for t in self.melds_and_pair_tiles() {
-			let suit = 4 - u8::from(t < t!(1p) as u8) - u8::from(t < t!(1s) as u8) - u8::from(t < t!(E) as u8) - u8::from(t < t!(Wh) as u8);
-			mask |= 0b1 << suit;
-		}
+		let ts = self.melds_and_pair_simd().1;
+
+		let suits = Tile::suits5(ts);
+		let masks = core::simd::Simd::splat(0b1) << suits;
+		let mask = core::simd::num::SimdUint::reduce_or(masks);
 		mask == 0b11111
 	}
 
 	pub(crate) fn honchinitsu(&self) -> Honchinitsu {
-		Honchinitsu::new(self.melds_and_pair_tiles())
+		Honchinitsu::new(self.melds_and_pair_simd().1)
 	}
 
 	pub(crate) fn num_chuuren_poutou(&self) -> u8 {
-		fn meld_tiles(m: ScorableHandMeld, suit_expected: &mut Option<NumberSuit>) -> Option<(Number, Number, Number)> {
-			let n1;
-			let n2;
-			let n3;
-
-			match m {
-				ScorableHandMeld::Ankan(_) |
-				ScorableHandMeld::Minkan(_) |
-				ScorableHandMeld::Minkou(_) |
-				ScorableHandMeld::Minjun(_) => return None,
-
-				ScorableHandMeld::Ankou(t) => {
-					let t = NumberTile::try_from(t).ok()?;
-					let number =
-						if let Some(suit_expected) = *suit_expected {
-							t.is_in_suit(suit_expected)?
-						}
-						else {
-							let NumberTileClassified { suit, number } = t.into();
-							*suit_expected = Some(suit);
-							number
-						};
-					n1 = number;
-					n2 = number;
-					n3 = number;
-				},
-
-				ScorableHandMeld::Anjun(t) => {
-					let t = t.remove_red();
-					let number =
-						if let Some(suit_expected) = *suit_expected {
-							t.is_in_suit(suit_expected)?
-						}
-						else {
-							let NumberTileClassified { suit, number } = NumberTile::from(t).into();
-							*suit_expected = Some(suit);
-							unsafe { core::mem::transmute::<u8, ShunLowNumber>(number as u8) }
-						};
-					n1 = number.into();
-					(n2, n3) = number.shun_rest();
-				},
-			}
-
-			Some((n1, n2, n3))
+		fn sub(counts: &mut core::simd::Simd<u8, 9>, mask: u16) {
+			*counts = core::simd::Select::select(
+				core::simd::Mask::<i8, _>::from_bitmask(mask.into()),
+				core::simd::num::SimdUint::saturating_sub(
+					*counts,
+					core::simd::Simd::splat(1),
+				),
+				*counts,
+			);
 		}
 
-		fn fourth_meld_and_pair_old_and_new_tiles(m4: ScorableHandFourthMeld, pair: ScorableHandPair, suit_expected: NumberSuit) -> Option<(Number, Number, Number, Number, Number)> {
-			let old1;
-			let old2;
-			let old3;
-			let old4;
-			let new;
+		let (ds, ts) = self.melds_and_pair_simd();
 
-			// Micro-optimization: `match m4 { ... }` generates a multi-level jump table. `match m4.dw()` generates a simple single-level one.
-			let [_, m4_t, _] = m4.parts();
-			match m4.dw() {
-				// Ankan / minkan / minkou tanki / minjun tanki
-				0 | 1 | 3 | 5 => return None,
+		let suits = Tile::suits4(ts);
+		let masks = core::simd::Simd::splat(0b1) << suits;
+		let mask = core::simd::num::SimdUint::reduce_or(masks);
+		let is_valid = (0b0000000000010110 >> mask) & 0b1;
+		if is_valid == 0 { return 0; }
 
-				// Ankou tanki
-				2 => {
-					let t = unsafe { core::mem::transmute::<u8, Tile>(m4_t) };
+		let n1s = ts - core::simd::Simd::splat(suits[0] * (t!(1p) as u8 - t!(1m) as u8) + t!(1m) as u8);
+		let n1s = n1s >> 1;
 
-					{
-						let t = NumberTile::try_from(t).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old1 = number;
-						old2 = number;
-						old3 = number;
-					}
+		let is_ankou = core::simd::cmp::SimdPartialEq::simd_eq(ds.extract::<1, 3>(), core::simd::Simd::splat(2));
+		let is_anjun = core::simd::cmp::SimdPartialEq::simd_eq(ds.extract::<1, 3>(), core::simd::Simd::splat(4));
+		let is_other = !is_ankou & !is_anjun;
+		if is_other.any() { return 0; }
 
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old4 = number;
-						new = number;
-					}
-				},
+		let mut counts = core::simd::Simd::<u8, _>::from_array([3, 1, 1, 1, 1, 1, 1, 1, 3]);
 
-				// Anjun tanki
-				4 => {
-					let t = unsafe { core::mem::transmute::<u8, ShunLowTileAndHasFiveRed>(m4_t) };
+		{
+			let n1s = n1s.extract::<1, 3>();
 
-					{
-						let t = t.remove_red();
-						let number = t.is_in_suit(suit_expected)?;
-						old1 = number.into();
-						(old2, old3) = number.shun_rest();
-					}
+			let m123_n1s = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u16>(n1s);
+			let [m1_n1, m2_n1, m3_n1] = m123_n1s.to_array();
+			sub(&mut counts, m1_n1);
+			sub(&mut counts, m2_n1);
+			sub(&mut counts, m3_n1);
 
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old4 = number;
-						new = number;
-					}
-				},
+			let m123_n2s = core::simd::Select::select(is_anjun, n1s + core::simd::Simd::splat(1), n1s);
+			let m123_n2s = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u16>(m123_n2s);
+			let [m1_n2, m2_n2, m3_n2] = m123_n2s.to_array();
+			sub(&mut counts, m1_n2);
+			sub(&mut counts, m2_n2);
+			sub(&mut counts, m3_n2);
 
-				// Ankou shanpon / minkou shanpon
-				6 | 7 => {
-					let t = unsafe { core::mem::transmute::<u8, Tile>(m4_t) };
-
-					{
-						let t = NumberTile::try_from(t).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old1 = number;
-						old2 = number;
-						new = number;
-					}
-
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old3 = number;
-						old4 = number;
-					}
-				},
-
-				// Anjun kanchan / minjun kanchan
-				8 | 9 => {
-					let t = unsafe { core::mem::transmute::<u8, ShunLowTileAndHasFiveRed>(m4_t) };
-
-					{
-						let t = t.remove_red();
-						let number = t.is_in_suit(suit_expected)?;
-						old1 = number.into();
-						(new, old2) = number.shun_rest();
-					}
-
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old3 = number;
-						old4 = number;
-					}
-				},
-
-				// Anjun penchan / minjun penchan
-				12 | 13 => {
-					let t = unsafe { core::mem::transmute::<u8, ShunLowTileAndHasFiveRed>(m4_t) };
-
-					{
-						let t = t.remove_red();
-						let number = t.is_in_suit(suit_expected)?;
-
-						if Number::from(number).value() == 1 {
-							old1 = number.into();
-							(old2, new) = number.shun_rest();
-						}
-						else {
-							(old1, old2) = number.shun_rest();
-							new = number.into();
-						}
-					}
-
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old3 = number;
-						old4 = number;
-					}
-				},
-
-				// Anjun ryanmen low / minjun ryanmen low
-				16 | 17 => {
-					let t = unsafe { core::mem::transmute::<u8, ShunLowTileAndHasFiveRed>(m4_t) };
-
-					{
-						let t = t.remove_red();
-						let number = t.is_in_suit(suit_expected)?;
-						(old1, old2) = number.shun_rest();
-						new = number.into();
-					}
-
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old3 = number;
-						old4 = number;
-					}
-				},
-
-				// Anjun ryanmen high / minjun ryanmen high
-				20 | 21 => {
-					let t = unsafe { core::mem::transmute::<u8, ShunLowTileAndHasFiveRed>(m4_t) };
-
-					{
-						let t = t.remove_red();
-
-						let number = t.is_in_suit(suit_expected)?;
-						old1 = number.into();
-						(old2, new) = number.shun_rest();
-					}
-
-					{
-						let t = NumberTile::try_from(pair.0).ok()?;
-						let number = t.is_in_suit(suit_expected)?;
-						old3 = number;
-						old4 = number;
-					}
-				},
-
-				_ => unsafe { core::hint::unreachable_unchecked(); },
-			}
-
-			Some((old1, old2, old3, old4, new))
+			let m123_n3s = core::simd::Select::select(is_anjun, n1s + core::simd::Simd::splat(2), n1s);
+			let m123_n3s = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u16>(m123_n3s);
+			let [m1_n3, m2_n3, m3_n3] = m123_n3s.to_array();
+			sub(&mut counts, m1_n3);
+			sub(&mut counts, m2_n3);
+			sub(&mut counts, m3_n3);
 		}
 
-		const fn sub(counts: &mut u32, n: Number) {
-			let offset = (n.value() - 1) * 2;
-			let count = (*counts >> offset) & 0b11;
-			if count > 0 {
-				*counts -= 0b1 << offset;
-			}
-		}
+		let pair_n = n1s[0];
+		let m4_n = n1s[4];
+		// Micro-optimization: `match m4 { ... }` generates a multi-level jump table. `match m4.dw()` generates a simple single-level one.
+		let m4_pair_ns = match self.m4.dw() {
+			// Ankan / minkan / minkou tanki / minjun tanki
+			0 | 1 | 3 | 5 => return 0,
 
-		let Self { m1, m2, m3, m4, pair } = self;
+			// Ankou tanki
+			2 => [m4_n, m4_n, m4_n, pair_n, pair_n],
 
-		// [3, 1, 1, 1, 1, 1, 1, 1, 3] packed into two bits per element.
-		let mut counts = 0b11_01_01_01_01_01_01_01_11_u32;
-		let mut suit_expected = None;
+			// Anjun tanki
+			4 => [m4_n, m4_n + 1, m4_n + 2, pair_n, pair_n],
 
-		for m in [m1, m2, m3] {
-			let Some((n1, n2, n3)) = meld_tiles(*m, &mut suit_expected) else { return 0; };
-			sub(&mut counts, n1);
-			sub(&mut counts, n2);
-			sub(&mut counts, n3);
-		}
+			// Ankou shanpon / minkou shanpon
+			6 | 7 => [m4_n, m4_n, pair_n, pair_n, m4_n],
 
-		let suit_expected = unsafe { suit_expected.unwrap_unchecked() };
+			// Anjun kanchan / minjun kanchan
+			8 | 9 => [m4_n, m4_n + 2, pair_n, pair_n, m4_n + 1],
 
-		let Some((old1, old2, old3, old4, new)) = fourth_meld_and_pair_old_and_new_tiles(*m4, pair.inner, suit_expected) else { return 0; };
+			// Anjun penchan / minjun penchan
+			12 | 13 => [m4_n + u8::from(m4_n != 0), m4_n + 1 + u8::from(m4_n != 0), pair_n, pair_n, m4_n + u8::from(m4_n == 0) * 2],
+
+			// Anjun ryanmen low / minjun ryanmen low
+			16 | 17 => [m4_n + 1, m4_n + 2, pair_n, pair_n, m4_n],
+
+			// Anjun ryanmen high / minjun ryanmen high
+			20 | 21 => [m4_n, m4_n + 1, pair_n, pair_n, m4_n + 2],
+
+			_ => unsafe { core::hint::unreachable_unchecked(); },
+		};
+		let m4_pair_ns = core::simd::Simd::from_array(m4_pair_ns);
+		let m4_pair_ns = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u16>(m4_pair_ns);
+		let [old1, old2, old3, old4, new] = m4_pair_ns.to_array();
+
 		sub(&mut counts, old1);
 		sub(&mut counts, old2);
 		sub(&mut counts, old3);
 		sub(&mut counts, old4);
-
-		let counts_without_new_tile = counts;
+		let complete_without_new_tile = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::splat(0)).all();
 
 		sub(&mut counts, new);
+		let complete = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::splat(0)).all();
 
-		match (counts, counts_without_new_tile) {
-			(0, 0) => 2,
-			(0, _) => 1,
-			_ => 0,
-		}
+		if complete { 1 + u8::from(complete_without_new_tile) } else { 0 }
 	}
 
 	pub(crate) fn is_hyakuman_goku(&self) -> bool {
-		let valid = self.melds_and_pair_tiles().iter().all(|&t| t <= t!(9m) as u8);
-		if !valid {
+		let (ds, ts) = self.melds_and_pair_simd();
+
+		let valid = core::simd::cmp::SimdPartialOrd::simd_le(ts, core::simd::Simd::splat(t!(9m) as u8));
+		if !valid.all() {
 			return false;
 		}
 
-		let pair_value = (((self.pair.inner.0 as u8 - t!(1m) as u8) >> 1) + 1) * 2;
+		let ds = ds.extract::<1, 4>();
+		let ns = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let pair_value = (ns[0] + 1) * 2;
+		let ns = ns.extract::<1, 4>();
+		let kan_values = (ns + core::simd::Simd::splat(1)) * core::simd::Simd::splat(4);
+		let kou_values = (ns + core::simd::Simd::splat(1)) * core::simd::Simd::splat(3);
+		let shun_values = (ns + core::simd::Simd::splat(2)) * core::simd::Simd::splat(3);
+
 		let values =
-			self.melds().iter()
-			.fold(pair_value, |acc, m| acc + match m {
-				ScorableHandMeld::Ankan(t) | ScorableHandMeld::Minkan(t) => (((*t as u8 - t!(1m) as u8) >> 1) + 1) * 4,
-				ScorableHandMeld::Ankou(t) | ScorableHandMeld::Minkou(t) => (((*t as u8 - t!(1m) as u8) >> 1) + 1) * 3,
-				ScorableHandMeld::Anjun(t) | ScorableHandMeld::Minjun(t) => (((*t as u8 - t!(1m) as u8) >> 1) + 2) * 3,
-			});
+			core::simd::Select::select(
+				core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(1)),
+				kan_values,
+				core::simd::Select::select(
+					core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(3)),
+					kou_values,
+					shun_values,
+				),
+			);
+		let values = pair_value + core::simd::num::SimdUint::reduce_sum(values);
+
 		values >= 100
 	}
 
 	pub(crate) fn is_golden_gate_bridge(&self) -> bool {
 		const MASK: u32 = 0b001010101_u32;
 
-		let counts =
-			self.melds_and_pair().iter().skip(1)
-			.fold(0b000000000_000000000_000000000_u32, |counts, m| {
-				let [d, t] = m.parts();
-				counts | u32::from(d >= 4).wrapping_shl(((t - t!(1m) as u8) >> 1).into())
-			});
-		let is_golden_gate_bridge = [counts, counts >> 9, counts >> 18].iter().any(|&counts| counts & MASK == MASK);
-		self.is_menzen() && is_golden_gate_bridge
+		let (ds, ts) = self.melds_simd();
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let is_shun = core::simd::cmp::SimdPartialOrd::simd_ge(ds, core::simd::Simd::splat(4));
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u32>(offsets);
+		let counts = core::simd::Select::select(is_shun, masks, core::simd::Simd::splat(0));
+		let counts = core::simd::num::SimdUint::reduce_or(counts);
+		let counts = core::simd::Simd::splat(counts);
+		let counts = counts >> core::simd::Simd::from_array([0, 9, 18]);
+		let counts = counts & core::simd::Simd::splat(MASK);
+		self.is_menzen() && core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::splat(MASK)).any()
 	}
 
-	fn is_sanshoku(&self, f: impl FnMut(&ScorableHandMeld) -> Option<NumberTile>) -> bool {
+	fn is_sanshoku(is_valid: core::simd::Mask<i8, 4>, ts: core::simd::Simd::<u8, 4>) -> bool {
 		const MASK: u64 = 0b000000001_000000001_000000001_000000001_000000001_u64;
 
-		let mut counts = 0b000000000_000000000_000000000_u32;
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
 
-		self.melds().iter()
-			.filter_map(f)
-			.fold(false, |result, t| {
-				let offset = (t as u8 - t!(1m) as u8) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u32>(offsets);
+		let masks = core::simd::Select::select(is_valid, masks, core::simd::Simd::splat(0));
+		let counts = core::simd::num::SimdUint::reduce_or(masks);
 
-				counts |= 0b1 << offset;
-
-				#[expect(clippy::cast_possible_truncation)]
-				let mask = ((MASK << offset) >> 18) as u32;
-				#[expect(clippy::needless_bitwise_bool)]
-				{
-					result | (counts & mask == mask & ((1 << 27) - 1))
-				}
-			})
+		let masks = core::simd::Simd::splat(MASK) << core::simd::num::SimdUint::cast::<u64>(offsets);
+		let masks = masks >> 18;
+		let masks = core::simd::num::SimdUint::cast::<u32>(masks);
+		let expected = masks & core::simd::Simd::splat((1 << 27) - 1);
+		let actual = masks & core::simd::Simd::splat(counts);
+		let is_valid = is_valid.cast::<i32>() & core::simd::cmp::SimdPartialEq::simd_eq(expected, actual);
+		is_valid.any()
 	}
 }
 
@@ -925,133 +694,88 @@ impl ScorableHandChiitoi {
 	}
 
 	pub(crate) fn is_toipuutao(self) -> bool {
-		const VALID: Tile34Set = t34set! { 1p, 2p, 3p, 4p, 5p, 8p, 9p, 2s, 4s, 5s, 6s, 8s, 9s, Wh };
+		const VALID: core::simd::Simd<u64, 7> = (t34set! { 1p, 2p, 3p, 4p, 5p, 8p, 9p, 2s, 4s, 5s, 6s, 8s, 9s, Wh }).simd_splat();
 
-		self.0.iter().all(|p| VALID.contains(p.0))
+		let ts = self.tiles_simd();
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
+		let is_valid = core::simd::cmp::SimdPartialEq::simd_ne(masks & VALID, core::simd::Simd::splat(0));
+		is_valid.all()
 	}
 
 	pub(crate) fn chanta_routou(self) -> ChantaRoutou {
-		cfg_select! {
-			all(target_arch = "riscv64", target_feature = "v") => {
-				let result: u8;
-				unsafe {
-					core::arch::asm!(
-						// let chanta_routou_other: v12:v12 = ChantaRoutou::other();
-						"vsetivli zero, 7, e8, m1, ta, ma",
-						"vmv.v.i v12, {chanta_routou_other}",
+		let ts = self.tiles_simd();
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
 
-						// let ts /* : v5:v5 */;
-						"vle8.v v5, ({ts})",
+		let terminals_contains_t = core::simd::cmp::SimdPartialEq::simd_ne(masks & Tile34Set::TERMINALS.simd_splat(), core::simd::Simd::splat(0));
+		let honors_contains_t = core::simd::cmp::SimdPartialEq::simd_ne(masks & Tile34Set::HONORS.simd_splat(), core::simd::Simd::splat(0));
+		let chanta_routous = core::simd::Select::select(
+			terminals_contains_t,
+			core::simd::Simd::splat(ChantaRoutou::all_terminals().0),
+			core::simd::Select::select(
+				honors_contains_t,
+				core::simd::Simd::splat(ChantaRoutou::all_honors().0),
+				core::simd::Simd::splat(ChantaRoutou::other().0),
+			),
+		);
 
-						// let offsets /* : v5:v5 */ = ts - t!(1m) as u8;
-						"vadd.vi v5, v5, {t1m}",
-						// let offsets /* : v5:v5 */ = offsets >> 1;
-						"vsrl.vi v5, v5, 1",
-						// let ts /* : v16:v19 */ = ts.cast::<u64>();
-						"vsetvli zero, zero, e64, m4, ta, ma",
-						"vzext.vf8 v16, v5",
-						// let masks /* : v8:v11 */ = 1 << ts;
-						"vmv.v.i v8, 1",
-						"vsll.vv v8, v8, v16",
-
-						// let honors_contains_t /* : v0:v0 */ = (masks & Tile34Set::HONORS) != 0;
-						"vand.vx v16, v8, {honors}",
-						"vmsne.vi v0, v16, 0",
-						// let temp2 /* : v12:v12 */ = select(honors_contains_t, chanta_routou_all_honors, chanta_routou_other);
-						"vsetvli zero, zero, e8, m1, ta, ma",
-						"vmerge.vim v12, v12, {chanta_routou_all_honors}, v0",
-
-						// let terminals_contains_t /* : v0:v0 */ = (masks & Tile34Set::TERMINALS) != 0;
-						"vsetvli zero, zero, e64, m4, ta, ma",
-						"vand.vx v16, v8, {terminals}",
-						"vmsne.vi v0, v16, 0",
-						// let chanta_routous /* : v12:v12 */ = select(terminals_contains_t, chanta_routou_all_terminals, temp2);
-						"vsetvli zero, zero, e8, m1, ta, ma",
-						"vmerge.vim v12, v12, {chanta_routou_all_terminals}, v0",
-
-						// let result = chanta_routous.reduce_or();
-						"vredor.vs v9, v12, v12",
-						"vmv.x.s {result}, v9",
-
-						ts = in(reg) &raw const self.0,
-						t1m = const -(t!(1m) as i8),
-						terminals = in(reg) Tile34Set::TERMINALS.present,
-						honors = in(reg) Tile34Set::HONORS.present,
-						chanta_routou_all_terminals = const ChantaRoutou::all_terminals().0,
-						chanta_routou_all_honors = const ChantaRoutou::all_honors().0,
-						chanta_routou_other = const ChantaRoutou::other().0,
-						result = lateout(reg) result,
-						out("v0") _,
-						out("v5") _,
-						out("v8") _,
-						out("v9") _,
-						out("v10") _,
-						out("v11") _,
-						out("v12") _,
-						out("v16") _,
-						out("v17") _,
-						out("v18") _,
-						out("v19") _,
-						options(nostack),
-					);
-				}
-				ChantaRoutou(result)
-			},
-
-			_ => {
-				const fn chanta_routou(p: ScorableHandPair) -> ChantaRoutou {
-					if Tile34Set::TERMINALS.contains(p.0) {
-						ChantaRoutou::all_terminals()
-					}
-					else if Tile34Set::HONORS.contains(p.0) {
-						ChantaRoutou::all_honors()
-					}
-					else {
-						ChantaRoutou::other()
-					}
-				}
-
-				self.0.iter().fold(ChantaRoutou(0), |acc, &p| acc | chanta_routou(p))
-			},
-		}
+		let result = core::simd::num::SimdUint::reduce_or(chanta_routous);
+		ChantaRoutou(result)
 	}
 
 	pub(crate) fn is_uumensai(self) -> bool {
-		let mut mask = 0b00000;
-		for &ScorableHandPair(t) in &self.0 {
-			let suit = 4 - u8::from(t < t!(1p)) - u8::from(t < t!(1s)) - u8::from(t < t!(E)) - u8::from(t < t!(Wh));
-			mask |= 0b1 << suit;
-		}
+		let ts = self.tiles_simd();
+		let suits = Tile::suits5(ts);
+		let masks = core::simd::Simd::splat(0b1) << suits;
+		let mask = core::simd::num::SimdUint::reduce_or(masks);
 		mask == 0b11111
 	}
 
 	pub(crate) fn is_akadora_sanshoku(self) -> bool {
-		is_akadora_sanshoku(&self.tiles())
+		is_akadora_sanshoku(self.tiles_simd())
 	}
 
 	pub(crate) fn honchinitsu(self) -> Honchinitsu {
-		Honchinitsu::new(self.0.iter().map(|ScorableHandPair(t)| *t as u8))
+		Honchinitsu::new(core::simd::Simd::from_array(self.0.map(|ScorableHandPair(t)| t as u8)))
 	}
 
 	pub(crate) fn dairin(self) -> Dairin {
-		let masks = self.0.iter().fold(0b0000000_000000000_000000000_000000000_u64, |acc, ScorableHandPair(t)| acc | 0b1_u64 << ((*t as u8 - t!(1m) as u8) >> 1));
-		match masks {
-			0b0000000_000000000_000000000_011111110 => Dairin::Man,
-			0b0000000_000000000_011111110_000000000 => Dairin::Pin,
-			0b0000000_011111110_000000000_000000000 => Dairin::Sou,
-			0b1111111_000000000_000000000_000000000 => Dairin::Ji,
-			_ => Dairin::None,
-		}
+		let ts = self.tiles_simd();
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
+		let set = core::simd::num::SimdUint::reduce_or(masks);
+		let sets = core::simd::Simd::splat(set);
+		let inner = core::simd::cmp::SimdPartialEq::simd_eq(sets, core::simd::Simd::from_array([
+			(t34set! { 2m, 3m, 4m, 5m, 6m, 7m, 8m }).present,
+			(t34set! { 2p, 3p, 4p, 5p, 6p, 7p, 8p }).present,
+			(t34set! { 2s, 3s, 4s, 5s, 6s, 7s, 8s }).present,
+			(t34set! { E, S, W, N, Wh, G, R }).present,
+		])).to_bitmask();
+		// SAFETY: `inner` can only have one of the five `Dairin` values since `self` only has seven pairs.
+		#[expect(clippy::cast_possible_truncation)]
+		unsafe { core::mem::transmute::<u8, Dairin>(inner as u8) }
 	}
 
 	pub(crate) fn is_kokuiisou(self) -> bool {
 		const VALID: Tile34Set = t34set! { 2p, 4p, 8p, E, S, W, N };
 
-		self.0.iter().all(|p| VALID.contains(p.0))
+		let ts = self.tiles_simd();
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
+		let masks = core::simd::num::SimdUint::reduce_or(masks);
+		masks & VALID.present == masks
 	}
 
-	fn tiles(self) -> [u8; 7] {
-		self.0.map(|ScorableHandPair(t)| t as u8)
+	fn tiles_simd(self) -> core::simd::Simd<u8, 7> {
+		core::simd::Simd::from_array(self.0.map(|ScorableHandPair(t)| t as u8))
+	}
+}
+
+#[expect(clippy::expl_impl_clone_on_copy)] // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl Clone for ScorableHandChiitoi {
+	fn clone(&self) -> Self {
+		*self
 	}
 }
 
@@ -1153,7 +877,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Ankan`](Self::Ankan) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`, `None` otherwise.
-	pub fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn ankan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let t = Tile::kan_representative(t1, t2, t3, t4)?;
 		Some(Self::Ankan(t))
 	}
@@ -1161,7 +885,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Minkan`](Self::Minkan) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2, t3].eq_ignore_red(&[t2, t3, t4])`, `None` otherwise.
-	pub fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
+	pub const fn minkan(t1: Tile, t2: Tile, t3: Tile, t4: Tile) -> Option<Self> {
 		let t = Tile::kan_representative(t1, t2, t3, t4)?;
 		Some(Self::Minkan(t))
 	}
@@ -1169,7 +893,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Ankou`](Self::Ankou) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2].eq_ignore_red(&[t2, t3])`, `None` otherwise.
-	pub fn ankou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
+	pub const fn ankou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
 		let t = Tile::kou_representative(t1, t2, t3)?;
 		Some(Self::Ankou(t))
 	}
@@ -1177,7 +901,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Minkou`](Self::Minkou) using the given tiles.
 	///
 	/// Returns `Some` if `[t1, t2].eq_ignore_red(&[t2, t3])`, `None` otherwise.
-	pub fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
+	pub const fn minkou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
 		let t = Tile::kou_representative(t1, t2, t3)?;
 		Some(Self::Minkou(t))
 	}
@@ -1185,7 +909,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Anjun`](Self::Anjun) using the given tiles.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn anjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn anjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::Anjun(t))
 	}
@@ -1193,7 +917,7 @@ impl ScorableHandMeld {
 	/// Construct a `ScorableHandMeld` of kind [`Minjun`](Self::Minjun) using the given tiles.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
+	pub const fn minjun(t1: ShunLowTile, t2: NumberTile, t3: NumberTile) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::Minjun(t))
 	}
@@ -1201,8 +925,7 @@ impl ScorableHandMeld {
 	/// `[d, t]`
 	const fn parts(self) -> [u8; 2] {
 		let m = unsafe { core::mem::transmute::<Self, [core::mem::MaybeUninit<u8>; core::mem::size_of::<Self>()]>(self) };
-		// TODO(rustup): Use `MaybeUninit::array_assume_init` when that is stabilized.
-		let m = unsafe { core::mem::transmute::<[core::mem::MaybeUninit<u8>; 2], [u8; 2]>(m) };
+		let m = unsafe { core::mem::MaybeUninit::array_assume_init(m) };
 		// Remove bounds check in callers that use `d` to index an array.
 		unsafe { core::hint::assert_unchecked(m[0] <= 5); }
 		unsafe { core::hint::assert_unchecked(m[1] <= t!(R) as u8); }
@@ -1235,19 +958,6 @@ impl ScorableHandMeld {
 				f(t2.into());
 				f(t3.into());
 			}
-		}
-	}
-
-	const fn is_menzen(self) -> bool {
-		match self {
-			Self::Ankan(_) |
-			Self::Ankou(_) |
-			Self::Anjun(_)
-				=> true,
-			Self::Minkan(_) |
-			Self::Minkou(_) |
-			Self::Minjun(_)
-				=> false,
 		}
 	}
 }
@@ -1288,7 +998,7 @@ impl core::fmt::Display for ScorableHandMeld {
 	}
 }
 
-impl From<HandMeld> for ScorableHandMeld {
+const impl From<HandMeld> for ScorableHandMeld {
 	fn from(meld: HandMeld) -> Self {
 		match meld {
 			HandMeld::Ankan(t) => Self::Ankan(t),
@@ -1300,16 +1010,16 @@ impl From<HandMeld> for ScorableHandMeld {
 }
 
 /// Converts a `ScorableHandFourthMeld` to a `ScorableHandMeld` by ignoring the wait.
-impl From<ScorableHandFourthMeld> for ScorableHandMeld {
+const impl From<ScorableHandFourthMeld> for ScorableHandMeld {
 	fn from(meld: ScorableHandFourthMeld) -> Self {
 		*meld.as_ref()
 	}
 }
 
-impl Eq for ScorableHandMeld {}
+const impl Eq for ScorableHandMeld {}
 
 /// `ScorableHandMeld`s differing only in the presence of akadora are considered equal.
-impl Ord for ScorableHandMeld {
+const impl Ord for ScorableHandMeld {
 	fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 		let sc = ScorableHandMeldSortCriteria::new(self);
 		let sc_other = ScorableHandMeldSortCriteria::new(other);
@@ -1318,7 +1028,7 @@ impl Ord for ScorableHandMeld {
 }
 
 /// `ScorableHandMeld`s differing only in the presence of akadora are considered equal.
-impl PartialEq for ScorableHandMeld {
+const impl PartialEq for ScorableHandMeld {
 	fn eq(&self, other: &Self) -> bool {
 		let sc = ScorableHandMeldSortCriteria::new(self);
 		let sc_other = ScorableHandMeldSortCriteria::new(other);
@@ -1327,7 +1037,7 @@ impl PartialEq for ScorableHandMeld {
 }
 
 /// `ScorableHandMeld`s differing only in the presence of akadora are considered equal.
-impl PartialOrd for ScorableHandMeld {
+const impl PartialOrd for ScorableHandMeld {
 	fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 		Some(self.cmp(other))
 	}
@@ -1339,37 +1049,31 @@ impl PartialOrd for ScorableHandMeld {
 // Specifically, on both x86_64 and RV, the `sort_unstable` codegen ends up using stack space and has many branches,
 // while this three-swap version fits entirely in registers, has no branches, and is shorter to boot (three / five `maxu; minu` pairs on RV).
 
-impl SortingNetwork for [ScorableHandMeld; 3] {
+macro_rules! minmax_scorable_hand_meld {
+	($self:ident, $i:literal, $j:literal) => {
+		[$self[$i], $self[$j]] = core::cmp::minmax_by_key($self[$i], $self[$j], ScorableHandMeldSortCriteria::new);
+	};
+}
+
+const impl SortingNetwork for [ScorableHandMeld; 3] {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 2), (0, 1), (1, 2)] {
-			let a = self[i];
-			let b = self[j];
-			let sc_i = ScorableHandMeldSortCriteria::new(&a);
-			let sc_j = ScorableHandMeldSortCriteria::new(&b);
-			if sc_i >= sc_j {
-				self[i] = b;
-				self[j] = a;
-			}
-		}
+		minmax_scorable_hand_meld!(self, 0, 2);
+		minmax_scorable_hand_meld!(self, 0, 1);
+		minmax_scorable_hand_meld!(self, 1, 2);
 	}
 }
 
-impl SortingNetwork for [ScorableHandMeld; 4] {
+const impl SortingNetwork for [ScorableHandMeld; 4] {
 	fn sort(&mut self) {
-		for (i, j) in [(0, 2), (1, 3), (0, 1), (2, 3), (1, 2)] {
-			let a = self[i];
-			let b = self[j];
-			let sc_i = ScorableHandMeldSortCriteria::new(&a);
-			let sc_j = ScorableHandMeldSortCriteria::new(&b);
-			if sc_i >= sc_j {
-				self[i] = b;
-				self[j] = a;
-			}
-		}
+		minmax_scorable_hand_meld!(self, 0, 2);
+		minmax_scorable_hand_meld!(self, 1, 3);
+		minmax_scorable_hand_meld!(self, 0, 1);
+		minmax_scorable_hand_meld!(self, 2, 3);
+		minmax_scorable_hand_meld!(self, 1, 2);
 	}
 }
 
-#[derive(Eq, Ord, PartialEq, PartialOrd)]
+#[derive_const(Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub(crate) struct ScorableHandMeldSortCriteria(u16);
 
@@ -1400,7 +1104,7 @@ impl ScorableHandMeldSortCriteria {
 	}
 }
 
-impl CmpIgnoreRed for ScorableHandMeldSortCriteria {
+const impl CmpIgnoreRed for ScorableHandMeldSortCriteria {
 	fn cmp_ignore_red(&self, other: &Self) -> core::cmp::Ordering {
 		// We want to treat `Red` and non-`Red`s the same so we set the LSB of each `Tile` field.
 		// Masking it out would be clearer, but setting is equivalent and generates simpler code.
@@ -1426,7 +1130,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a [`ScorableHandFourthMeld::Ankou`] or [`ScorableHandFourthMeld::Minkou`] with a [`KouWait::Shanpon`] wait using the given tiles and `TsumoOrRon` flag.
 	///
 	/// Returns `Some` if `[t1, t2].eq_ignore_red(&[t2, t3])`, `None` otherwise.
-	pub fn shanpon(t1: Tile, t2: Tile, t3: Tile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
+	pub const fn shanpon(t1: Tile, t2: Tile, t3: Tile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
 		let t = Tile::kou_representative(t1, t2, t3)?;
 		Some(Self::kou(t, tsumo_or_ron, KouWait::Shanpon))
 	}
@@ -1442,7 +1146,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a [`ScorableHandFourthMeld::Anjun`] or [`ScorableHandFourthMeld::Minjun`] with a [`ShunWait::Kanchan`] wait using the given tiles and `TsumoOrRon` flag.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn kanchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
+	pub const fn kanchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::shun(t, tsumo_or_ron, ShunWait::Kanchan))
 	}
@@ -1450,7 +1154,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a [`ScorableHandFourthMeld::Anjun`] or [`ScorableHandFourthMeld::Minjun`] with a [`ShunWait::Penchan`] wait using the given tiles and `TsumoOrRon` flag.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn penchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
+	pub const fn penchan(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::shun(t, tsumo_or_ron, ShunWait::Penchan))
 	}
@@ -1458,7 +1162,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a [`ScorableHandFourthMeld::Anjun`] or [`ScorableHandFourthMeld::Minjun`] with a [`ShunWait::RyanmenLow`] wait using the given tiles and `TsumoOrRon` flag.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn ryanmen_low(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
+	pub const fn ryanmen_low(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::shun(t, tsumo_or_ron, ShunWait::RyanmenLow))
 	}
@@ -1466,7 +1170,7 @@ impl ScorableHandFourthMeld {
 	/// Construct a [`ScorableHandFourthMeld::Anjun`] or [`ScorableHandFourthMeld::Minjun`] with a [`ShunWait::RyanmenHigh`] wait using the given tiles and `TsumoOrRon` flag.
 	///
 	/// Returns `Some` if [`ShunLowTileAndHasFiveRed::new`] returns `Some`, `None` otherwise.
-	pub fn ryanmen_high(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
+	pub const fn ryanmen_high(t1: ShunLowTile, t2: NumberTile, t3: NumberTile, tsumo_or_ron: TsumoOrRon) -> Option<Self> {
 		let t = ShunLowTileAndHasFiveRed::new(t1, t2, t3)?;
 		Some(Self::shun(t, tsumo_or_ron, ShunWait::RyanmenHigh))
 	}
@@ -1483,8 +1187,13 @@ impl ScorableHandFourthMeld {
 		}
 	}
 
-	pub(crate) fn to_tanki(self) -> Option<ScorableHandMeld> {
-		self.is_tanki().then(|| self.into())
+	pub(crate) const fn to_tanki(self) -> Option<ScorableHandMeld> {
+		if self.is_tanki() {
+			Some(self.into())
+		}
+		else {
+			None
+		}
 	}
 
 	pub(crate) const fn is_tanki(self) -> bool {
@@ -1589,7 +1298,7 @@ impl core::fmt::Debug for ScorableHandFourthMeld {
 }
 
 /// Converts a `ScorableHandFourthMeld` to a `ScorableHandMeld` by ignoring the wait.
-impl AsRef<ScorableHandMeld> for ScorableHandFourthMeld {
+const impl AsRef<ScorableHandMeld> for ScorableHandFourthMeld {
 	fn as_ref(&self) -> &ScorableHandMeld {
 		unsafe { &*<*const Self>::cast::<ScorableHandMeld>(self) }
 	}
@@ -1652,9 +1361,9 @@ impl core::fmt::Display for ScorableHandFourthMeld {
 	}
 }
 
-impl Eq for ScorableHandFourthMeld {}
+const impl Eq for ScorableHandFourthMeld {}
 
-impl Ord for ScorableHandFourthMeld {
+const impl Ord for ScorableHandFourthMeld {
 	fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 		const fn sort_criteria(m: ScorableHandFourthMeld) -> u32 {
 			// Micro-optimization:
@@ -1693,7 +1402,7 @@ impl Ord for ScorableHandFourthMeld {
 	}
 }
 
-impl PartialEq for ScorableHandFourthMeld {
+const impl PartialEq for ScorableHandFourthMeld {
 	fn eq(&self, other: &Self) -> bool {
 		// Micro-optimization: We don't want to use `derive(PartialEq)` because the auto-generated impl has the branchy element-by-element comparison problem
 		// mentioned in `ScorableHandFourthMeld::cmp` above.
@@ -1703,7 +1412,7 @@ impl PartialEq for ScorableHandFourthMeld {
 	}
 }
 
-impl PartialOrd for ScorableHandFourthMeld {
+const impl PartialOrd for ScorableHandFourthMeld {
 	fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 		Some(self.cmp(other))
 	}
@@ -1713,7 +1422,7 @@ impl ScorableHandPair {
 	/// Construct a `ScorableHandPair` using the given tiles.
 	///
 	/// Returns `Some` if `t1.eq_ignore_red(&t2)`, `None` otherwise.
-	pub fn new(t1: Tile, t2: Tile) -> Option<Self> {
+	pub const fn new(t1: Tile, t2: Tile) -> Option<Self> {
 		let t = Tile::pair_representative(t1, t2)?;
 		Some(Self(t))
 	}
@@ -1723,7 +1432,7 @@ impl ScorableHandPair {
 		f(self.0);
 	}
 
-	pub(crate) fn num_yakuhai(self, round_wind: WindTile, seat_wind: WindTile) -> u8 {
+	pub(crate) const fn num_yakuhai(self, round_wind: WindTile, seat_wind: WindTile) -> u8 {
 		(u8::from(self.0 == round_wind.into()) + u8::from(self.0 == seat_wind.into())) | u8::from(self.0 >= t!(Wh))
 	}
 }
@@ -1745,25 +1454,26 @@ impl core::fmt::Display for ScorableHandPair {
 	}
 }
 
-impl Ord for ScorableHandPair {
+const impl Ord for ScorableHandPair {
 	fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 		self.0.cmp_ignore_red(&other.0)
 	}
 }
 
-impl PartialEq for ScorableHandPair {
+const impl PartialEq for ScorableHandPair {
 	fn eq(&self, other: &Self) -> bool {
 		self.0.eq_ignore_red(&other.0)
 	}
 }
 
-impl PartialOrd for ScorableHandPair {
+const impl PartialOrd for ScorableHandPair {
 	fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 		Some(self.cmp(other))
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(u8)]
 pub(crate) enum PeikouIsshokuJun {
 	None,
@@ -1774,71 +1484,109 @@ pub(crate) enum PeikouIsshokuJun {
 }
 
 impl PeikouIsshokuJun {
-	fn new(m1: ScorableHandMeld, m2: ScorableHandMeld, m3: ScorableHandMeld, m4: ScorableHandFourthMeld, is_menzen: bool) -> Self {
-		// `[[2, 2, 2, 2, 2, 2, 2, 0, 0]; 3]` packed into two bits per element.
-		let mut peikou_counts = 0x2AAA0AAA82AAA_u64;
-		let mut num_peikou = 0;
+	fn new(ds: core::simd::Simd<u8, 4>, ts: core::simd::Simd<u8, 4>, is_menzen: bool) -> Self {
+		// The SWAR impl generates smaller code for targets without vectorization. We don't have something like `core::simd::is_supported()`
+		// so we have to handle it ourselves. Not having vectorization is rare, so let's list targets without vectorization explicitly
+		// and have the default case assume vectorization.
+		let (num_peikou, is_isshoku_yonjun, is_isshoku_sanjun) = cfg_select! {
+			all(target_arch = "riscv64", not(target_feature = "v")) => {{
+				// `[[2, 2, 2, 2, 2, 2, 2, 0, 0]; 3]` packed into two bits per element.
+				let mut peikou_counts = 0x2AAA0AAA82AAA_u64;
+				let mut num_peikou = 0;
 
-		// `[[3, 3, 3, 3, 3, 3, 3, 0, 0]; 3]` packed into two bits per element.
-		let mut isshoku_jun_counts = 0x3FFF0FFFC3FFF_u64;
-		let mut is_isshoku_sanjun = false;
-		let is_isshoku_yonjun;
+				// `[[3, 3, 3, 3, 3, 3, 3, 0, 0]; 3]` packed into two bits per element.
+				let mut isshoku_jun_counts = 0x3FFF0FFFC3FFF_u64;
+				let mut is_isshoku_sanjun = false;
+				let is_isshoku_yonjun;
 
-		// Micro-optimization: `match` on `m*` generates verbose code, so work with the integer parts directly.
+				let consider = core::simd::cmp::SimdPartialOrd::simd_ge(ds, core::simd::Simd::splat(4));
+				let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) & core::simd::Simd::splat(!0b1);
+				let count_adjustments = core::simd::Select::select(consider.extract::<0, 3>(), core::simd::Simd::splat(1), core::simd::Simd::splat(0)) << core::simd::num::SimdUint::cast::<u64>(offsets.extract::<0, 3>());
 
-		let [m1_d, m1_t] = m1.parts();
-		let [m2_d, m2_t] = m2.parts();
-		let [m3_d, m3_t] = m3.parts();
-		let [m4_d, m4_t, _] = m4.parts();
+				{
+					let count_adjustment = count_adjustments[0];
 
-		{
-			let consider_m1 = u64::from(m1_d >= 4);
-			let offset = (m1_t & !0b1) - t!(1m) as u8;
+					peikou_counts -= count_adjustment;
 
-			peikou_counts -= consider_m1.wrapping_shl(offset.into());
+					isshoku_jun_counts -= count_adjustment;
+				}
 
-			isshoku_jun_counts -= consider_m1.wrapping_shl(offset.into());
-		}
+				{
+					let consider_m2 = consider.test(1);
+					let offset = offsets[1];
+					let count_adjustment = count_adjustments[1];
 
-		{
-			let consider_m2 = u64::from(m2_d >= 4);
-			let offset = (m2_t & !0b1) - t!(1m) as u8;
-			let count_adjustment = consider_m2.wrapping_shl(offset.into());
+					let peikou_count = peikou_counts.wrapping_shr(offset.into()) & 0b11;
+					num_peikou += (u64::from(consider_m2) & peikou_count) as usize;
+					peikou_counts -= count_adjustment;
 
-			let peikou_count = peikou_counts.wrapping_shr(offset.into()) & 0b11;
-			num_peikou += (consider_m2 & peikou_count) as usize;
-			peikou_counts -= count_adjustment;
+					isshoku_jun_counts -= count_adjustment;
+				}
 
-			isshoku_jun_counts -= count_adjustment;
-		}
+				{
+					let consider_m3 = consider.test(2);
+					let offset = offsets[2];
+					let count_adjustment = count_adjustments[2];
 
-		{
-			let consider_m3 = u64::from(m3_d >= 4);
-			let offset = (m3_t & !0b1) - t!(1m) as u8;
-			let count_adjustment = consider_m3.wrapping_shl(offset.into());
+					let peikou_count = peikou_counts.wrapping_shr(offset.into()) & 0b11;
+					num_peikou += (u64::from(consider_m3) & peikou_count) as usize;
+					if consider_m3 && peikou_count != 0 {
+						peikou_counts -= count_adjustment;
+					}
 
-			let peikou_count = peikou_counts.wrapping_shr(offset.into()) & 0b11;
-			num_peikou += (consider_m3 & peikou_count) as usize;
-			if consider_m3 != 0 && peikou_count != 0 {
-				peikou_counts -= count_adjustment;
-			}
+					let isshoku_jun_count = isshoku_jun_counts.wrapping_shr(offset.into()) & 0b11;
+					is_isshoku_sanjun |= consider_m3 && isshoku_jun_count == 1;
+					isshoku_jun_counts -= count_adjustment;
+				}
 
-			let isshoku_jun_count = isshoku_jun_counts.wrapping_shr(offset.into()) & 0b11;
-			is_isshoku_sanjun |= consider_m3 != 0 && isshoku_jun_count == 1;
-			isshoku_jun_counts -= count_adjustment;
-		}
+				{
+					let consider_m4 = consider.test(3);
+					let offset = offsets[3];
 
-		{
-			let consider_m4 = u64::from(m4_d >= 4);
-			let offset = (m4_t & !0b1) - t!(1m) as u8;
+					let peikou_count = peikou_counts.wrapping_shr(offset.into()) & 0b11;
+					num_peikou += (u64::from(consider_m4) & peikou_count) as usize;
 
-			let peikou_count = peikou_counts.wrapping_shr(offset.into()) & 0b11;
-			num_peikou += (consider_m4 & peikou_count) as usize;
+					let isshoku_jun_count = isshoku_jun_counts.wrapping_shr(offset.into()) & 0b11;
+					is_isshoku_sanjun |= consider_m4 && isshoku_jun_count == 1;
+					is_isshoku_yonjun = consider_m4 && isshoku_jun_count == 0;
+				}
 
-			let isshoku_jun_count = isshoku_jun_counts.wrapping_shr(offset.into()) & 0b11;
-			is_isshoku_sanjun |= consider_m4 != 0 && isshoku_jun_count == 1;
-			is_isshoku_yonjun = consider_m4 != 0 && isshoku_jun_count == 0;
-		}
+				(num_peikou, is_isshoku_yonjun, is_isshoku_sanjun)
+			}},
+
+			_ => {{
+				let consider = core::simd::cmp::SimdPartialOrd::simd_ge(ds, core::simd::Simd::splat(4));
+				let count_adjustments = core::simd::Select::select(consider, core::simd::Simd::splat(1), core::simd::Simd::splat(0));
+				let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+
+				#[expect(clippy::cast_possible_truncation)]
+				let id = core::simd::Simd::from_array(core::array::from_fn(|i| i as u8));
+
+				let counts: core::simd::Simd<u8, 25> =
+					(0..4)
+					.map(|i| core::simd::Select::select(
+						core::simd::cmp::SimdPartialEq::simd_eq(core::simd::Simd::splat(offsets[i]), id),
+						core::simd::Simd::splat(count_adjustments[i]),
+						core::simd::Simd::splat(0),
+					))
+					.sum();
+
+				// Micro-optimization: `simd_eq().to_bitmask().count_ones()` generates silly code that widens the mask to `0xFF` as an intermediate step
+				// because of how `core::simd::Mask` is designed internally to wrap `iN` instead of `i1`.
+				// Doing `reduce_sum(select(simd_eq(), splat(1), splat(0)))` generates the intended code that does popcount on the mask.
+				let num_peikou =
+					usize::from(core::simd::num::SimdUint::reduce_sum(core::simd::Select::select(
+						core::simd::cmp::SimdPartialOrd::simd_ge(counts, core::simd::Simd::splat(2)),
+						core::simd::Simd::splat(1_u8),
+						core::simd::Simd::splat(0_u8),
+					)));
+
+				let is_isshoku_yonjun = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::splat(4)).any();
+				let is_isshoku_sanjun = core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::splat(3)).any();
+
+				(num_peikou, is_isshoku_yonjun, is_isshoku_sanjun)
+			}},
+		};
 
 		if is_isshoku_yonjun { Self::IsshokuYonjun }
 		else if is_isshoku_sanjun { Self::IsshokuSanjun }
@@ -1868,7 +1616,8 @@ impl PeikouIsshokuJun {
 // All | All = All
 //
 // Tested exhaustively in the `chanta_routou` test.
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 pub(crate) struct ChantaRoutou(u8);
 
 #[expect(clippy::unusual_byte_groupings)]
@@ -1895,7 +1644,7 @@ impl ChantaRoutou {
 	const fn is_other(self) -> bool { self.0 > 0b1_0_00 }
 }
 
-impl core::ops::BitOr for ChantaRoutou {
+const impl core::ops::BitOr for ChantaRoutou {
 	type Output = ChantaRoutou;
 
 	fn bitor(self, rhs: Self) -> Self::Output {
@@ -1919,7 +1668,8 @@ impl core::fmt::Debug for ChantaRoutou {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(u8)]
 pub enum Iisou {
 	None,
@@ -1932,45 +1682,41 @@ pub enum Iisou {
 }
 
 impl Iisou {
-	fn new(melds_and_pair: &[ScorableHandMeld; 5]) -> Self {
-		#[expect(clippy::needless_pass_by_value)]
+	fn new(ds: core::simd::Simd<u8, 5>, ts: core::simd::Simd<u8, 5>) -> Self {
 		fn new_inner(
-			melds_and_pair: &[ScorableHandMeld; 5],
+			masks: core::simd::Simd<u64, 5>,
+			is_kan_kou: core::simd::Mask<i8, 5>,
 			kou_kan_pair_valid: Tile34Set,
 			shun_valid: Tile34Set,
 		) -> bool {
-			melds_and_pair.iter()
-				.fold(true, |is_valid, &m| {
-					let (set, t) = match m {
-						ScorableHandMeld::Ankan(t) |
-						ScorableHandMeld::Minkan(t) |
-						ScorableHandMeld::Ankou(t) |
-						ScorableHandMeld::Minkou(t) => (&kou_kan_pair_valid, t),
-						ScorableHandMeld::Anjun(t) |
-						ScorableHandMeld::Minjun(t) => (&shun_valid, Tile::from(t.remove_red())),
-					};
-					is_valid & set.contains(t)
-				})
+			let sets = core::simd::Select::select(is_kan_kou, kou_kan_pair_valid.simd_splat(), shun_valid.simd_splat());
+			let is_valid = core::simd::cmp::SimdPartialEq::simd_ne(sets & masks, core::simd::Simd::splat(0));
+			is_valid.all()
 		}
 
-		if new_inner(melds_and_pair, t34set! { 1p, 2p, 3p, 4p, 5p, 8p, 9p, 2s, 4s, 5s, 6s, 8s, 9s, Wh }, t34set! { 1p, 2p, 3p, 4s }) {
+		let is_kan_kou = core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(3));
+
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
+
+		if new_inner(masks, is_kan_kou, t34set! { 1p, 2p, 3p, 4p, 5p, 8p, 9p, 2s, 4s, 5s, 6s, 8s, 9s, Wh }, t34set! { 1p, 2p, 3p, 4s }) {
 			Self::Toipuutao
 		}
-		else if new_inner(melds_and_pair, t34set! { 2s, 3s, 4s, 6s, 8s }, t34set! { 2s }) {
+		else if new_inner(masks, is_kan_kou, t34set! { 2s, 3s, 4s, 6s, 8s }, t34set! { 2s }) {
 			Self::Chinryuusou
 		}
-		else if new_inner(melds_and_pair, t34set! { 2s, 3s, 4s, 6s, 8s, G }, t34set! { 2s }) {
+		else if new_inner(masks, is_kan_kou, t34set! { 2s, 3s, 4s, 6s, 8s, G }, t34set! { 2s }) {
 			// Ryuuiisou requires G, but a hand without G would've already matched as Chinryuusou.
 			Self::Ryuuiisou
 		}
-		else if new_inner(melds_and_pair, t34set! { 2s, 3s, 4s, 6s, 8s, R }, t34set! { 2s }) {
+		else if new_inner(masks, is_kan_kou, t34set! { 2s, 3s, 4s, 6s, 8s, R }, t34set! { 2s }) {
 			// Kouitten requires R, but a hand without R would've already matched as Chinryuusou.
 			Self::Kouitten
 		}
-		else if new_inner(melds_and_pair, t34set! { 1s, 5s, 7s, 9s, R }, Default::default()) {
+		else if new_inner(masks, is_kan_kou, t34set! { 1s, 5s, 7s, 9s, R }, Default::default()) {
 			Self::Benikujaku
 		}
-		else if new_inner(melds_and_pair, t34set! { 2p, 4p, 8p, E, S, W, N }, Default::default()) {
+		else if new_inner(masks, is_kan_kou, t34set! { 2p, 4p, 8p, E, S, W, N }, Default::default()) {
 			Self::Kokuiisou
 		}
 		else {
@@ -1979,7 +1725,8 @@ impl Iisou {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(unused)] // Constructed via `transmute`
 pub(crate) enum IttsuuKanSen {
@@ -1990,49 +1737,56 @@ pub(crate) enum IttsuuKanSen {
 }
 
 impl IttsuuKanSen {
-	fn new(melds_and_pair: &[ScorableHandMeld; 5], is_menzen: bool) -> Self {
-		const SANSHOKU_TSUUKAN_MASKS: [u32; 6] = [
+	fn new(ds: core::simd::Simd<u8, 5>, ts: core::simd::Simd<u8, 5>, is_menzen: bool) -> Self {
+		const SANSHOKU_TSUUKAN_MASKS: core::simd::Simd<u32, 6> = core::simd::Simd::from_array([
 			0b001000000_000001000_000000001,
 			0b000001000_001000000_000000001,
 			0b001000000_000000001_000001000,
 			0b000000001_001000000_000001000,
 			0b000001000_000000001_001000000,
 			0b000000001_000001000_001000000,
-		];
+		]);
 		const ITTSUU_MASK: u32 = 0b001001001_u32;
 		const TOUHOKU_SHINKANSEN_WINDS: Tile34Set = t34set! { E, N };
 
-		let counts =
-			melds_and_pair.iter().skip(1)
-			.fold(0b000000000_000000000_000000000_u32, |counts, m| {
-				let [d, t] = m.parts();
-				counts | u32::from(d >= 4).wrapping_shl(((t - t!(1m) as u8) >> 1).into())
-			});
+		let offsets = (ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1;
 
-		// Wrong lint. Ref: https://github.com/rust-lang/rust-clippy/issues/17563
-		#[expect(clippy::manual_contains)]
-		let is_sanshoku_tsuukan = SANSHOKU_TSUUKAN_MASKS.iter().any(|&mask| counts & mask == mask);
+		let is_shun = core::simd::cmp::SimdPartialOrd::simd_ge(ds.extract::<1, 4>(), core::simd::Simd::splat(4));
+		let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u32>(offsets.extract::<1, 4>());
+		let counts = core::simd::Select::select(is_shun, masks, core::simd::Simd::splat(0));
+		let counts = core::simd::num::SimdUint::reduce_or(counts);
+		let counts = core::simd::Simd::splat(counts);
+		let is_sanshoku_tsuukan = {
+			let counts = counts & SANSHOKU_TSUUKAN_MASKS;
+			core::simd::cmp::SimdPartialEq::simd_eq(counts, SANSHOKU_TSUUKAN_MASKS).any()
+		};
 		if is_sanshoku_tsuukan {
 			return Self::SanshokuTsuukan;
 		}
 
-		let is_ittsuu = [counts, counts >> 9, counts >> 18].iter().any(|&counts| counts & ITTSUU_MASK == ITTSUU_MASK);
+		let is_ittsuu = {
+			let counts = counts.extract::<0, 3>() >> core::simd::Simd::from_array([0, 9, 18]);
+			let counts = counts & core::simd::Simd::splat(ITTSUU_MASK);
+			core::simd::cmp::SimdPartialEq::simd_eq(counts, core::simd::Simd::splat(ITTSUU_MASK)).any()
+		};
+
 		let result = u8::from(is_ittsuu) << 1;
 
-		let counts =
-			melds_and_pair.iter()
-			.fold(0b0000000_000000000_000000000_000000000_u64, |counts, m| {
-				let [_, t] = m.parts();
-				counts | 0b1_u64.wrapping_shl(((t - t!(1m) as u8) >> 1).into())
-			});
-		let is_touhoku_shinkansen = is_menzen && (counts & TOUHOKU_SHINKANSEN_WINDS.present) == TOUHOKU_SHINKANSEN_WINDS.present;
+		let is_touhoku_shinkansen = is_menzen && {
+			let is_kou_kan = core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(3));
+			let masks = core::simd::Simd::splat(0b1) << core::simd::num::SimdUint::cast::<u64>(offsets);
+			let masks = core::simd::Select::select(is_kou_kan, masks, core::simd::Simd::splat(0));
+			let mask = core::simd::num::SimdUint::reduce_or(masks);
+			mask == TOUHOKU_SHINKANSEN_WINDS.present
+		};
 		let result = result << u8::from(is_touhoku_shinkansen);
 
 		unsafe { core::mem::transmute::<u8, Self>(result) }
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(u8)]
 #[expect(unused)] // Constructed via `transmute`
 pub(crate) enum NumAnkou {
@@ -2043,8 +1797,10 @@ pub(crate) enum NumAnkou {
 }
 
 impl NumAnkou {
-	fn new(ds: [u8; 4], m4_is_tanki: bool) -> Self {
-		let count = ds.iter().filter(|&&d| d & 0b101 == 0b000).count();
+	fn new(ds: core::simd::Simd<u8, 4>, m4_is_tanki: bool) -> Self {
+		let is_ankou_or_ankan = core::simd::cmp::SimdPartialEq::simd_eq(ds & core::simd::Simd::splat(0b101), core::simd::Simd::splat(0));
+		let counts = core::simd::Select::select(is_ankou_or_ankan, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8));
+		let count = core::simd::num::SimdUint::reduce_sum(counts);
 		let inner = 2 - u8::from(count <= 3) - u8::from(count <= 2);
 		let inner = inner << u8::from((count == 4) & m4_is_tanki);
 		unsafe { core::mem::transmute::<u8, Self>(inner) }
@@ -2055,7 +1811,8 @@ impl NumAnkou {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 pub(crate) enum NumKantsu {
 	Neither,
 	Sankantsu,
@@ -2063,8 +1820,10 @@ pub(crate) enum NumKantsu {
 }
 
 impl NumKantsu {
-	fn new(ds: [u8; 4]) -> Self {
-		let count = ds.iter().filter(|&&d| d <= 1).count();
+	fn new(ds: core::simd::Simd<u8, 4>) -> Self {
+		let is_kantsu = core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(1));
+		let counts = core::simd::Select::select(is_kantsu, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8));
+		let count = core::simd::num::SimdUint::reduce_sum(counts);
 		match count {
 			3 => Self::Sankantsu,
 			4 => Self::Suukantsu,
@@ -2073,7 +1832,8 @@ impl NumKantsu {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 pub(crate) enum SuushiiSangen {
 	None,
 	Shousuushii,
@@ -2083,16 +1843,15 @@ pub(crate) enum SuushiiSangen {
 }
 
 impl SuushiiSangen {
-	fn new(ts: [u8; 4], pair: Tile) -> Self {
-		let (num_wind_melds, num_dragon_melds) =
-			ts.iter()
-			.fold((0, 0), |(num_wind_melds, num_dragon_melds), &t| {
-				// SAFETY: If `t` is in the range of wind or dragon tiles, it must have been from the `*kan` or `*kou` variants,
-				// in which case it was a valid `Tile` and thus meets the safety requirement of `try_from_raw`.
-				let num_wind_melds = num_wind_melds + u8::from((unsafe { WindTile::try_from_raw(t) }).is_ok());
-				let num_dragon_melds = num_dragon_melds + u8::from((unsafe { DragonTile::try_from_raw(t) }).is_ok());
-				(num_wind_melds, num_dragon_melds)
-			});
+	fn new(ts: core::simd::Simd<u8, 4>, pair: Tile) -> Self {
+		let is_ge_ton = core::simd::cmp::SimdPartialOrd::simd_ge(ts, core::simd::Simd::splat(t!(E) as u8));
+		let is_le_pei = core::simd::cmp::SimdPartialOrd::simd_le(ts, core::simd::Simd::splat(t!(N) as u8));
+		let counts_wind_meld = core::simd::Select::select(is_ge_ton & is_le_pei, core::simd::Simd::splat(1_u8), core::simd::Simd::splat(0_u8));
+		let num_wind_melds = core::simd::num::SimdUint::reduce_sum(counts_wind_meld);
+
+		let counts_dragon_meld = core::simd::Select::select(is_le_pei, core::simd::Simd::splat(0_u8), core::simd::Simd::splat(1_u8));
+		let num_dragon_melds = core::simd::num::SimdUint::reduce_sum(counts_dragon_meld);
+
 		match (num_wind_melds, num_dragon_melds) {
 			(3, _) if ((t!(E) as u8)..=(t!(N) as u8)).contains(&(pair as u8)) => Self::Shousuushii,
 			(4, _) => Self::Daisuushii,
@@ -2103,7 +1862,8 @@ impl SuushiiSangen {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
 #[repr(u8)]
 pub(crate) enum NumRenkou {
 	Neither,
@@ -2112,37 +1872,44 @@ pub(crate) enum NumRenkou {
 }
 
 impl NumRenkou {
-	fn new(h: &ScorableHandRegular) -> Self {
+	fn new(ds: core::simd::Simd<u8, 4>, ts: core::simd::Simd<u8, 4>) -> Self {
 		const SUURENKOU_MASK: u64 = 0b1111;
 		const SANRENKOU_MASK: u64 = 0b111;
 
-		let masks = h.melds().iter().fold(0b000000000_000000000_000000000_u64, |masks, m| {
-			let [d, t] = m.parts();
-			masks | (u64::from(d <= 3) << ((t - t!(1m) as u8) >> 1))
-		});
-		let man_counts = masks & 0b111111111;
-		let pin_counts = masks & (0b111111111 << 9);
-		let sou_counts = masks & (0b111111111 << 18);
+		let is_kou_kan = core::simd::cmp::SimdPartialOrd::simd_le(ds, core::simd::Simd::splat(3));
 
-		let is_suurenkou = h.melds_tiles().iter().any(|&t| {
-			let expected = SUURENKOU_MASK << ((t - t!(1m) as u8) >> 1);
-			let actual_man = man_counts & expected;
-			let actual_pin = pin_counts & expected;
-			let actual_sou = sou_counts & expected;
-			actual_man == expected || actual_pin == expected || actual_sou == expected
-		});
-		if is_suurenkou {
+		let offsets = core::simd::num::SimdUint::cast::<u64>((ts - core::simd::Simd::splat(t!(1m) as u8)) >> 1);
+
+		let masks = core::simd::Simd::splat(0b1) << offsets;
+		let masks = core::simd::Select::select(is_kou_kan, masks, core::simd::Simd::splat(0));
+		let counts = core::simd::num::SimdUint::reduce_or(masks);
+		let counts = core::simd::Simd::splat(counts);
+		let counts = counts & core::simd::Simd::from_array([
+			(t34set! { 1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m }).present,
+			(t34set! { 1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 9p }).present,
+			(t34set! { 1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s }).present,
+		]);
+
+		let expected4 = core::simd::Simd::splat(SUURENKOU_MASK) << offsets;
+		let expected3 = core::simd::Simd::splat(SANRENKOU_MASK) << offsets;
+
+		let actual_man = core::simd::Simd::splat(counts[0]) & expected4;
+		let actual_pin = core::simd::Simd::splat(counts[1]) & expected4;
+		let actual_sou = core::simd::Simd::splat(counts[2]) & expected4;
+
+		let is_suurenkou =
+			core::simd::cmp::SimdPartialEq::simd_eq(expected4, actual_man) |
+			core::simd::cmp::SimdPartialEq::simd_eq(expected4, actual_pin) |
+			core::simd::cmp::SimdPartialEq::simd_eq(expected4, actual_sou);
+		if is_suurenkou.any() {
 			return Self::Suurenkou;
 		}
 
-		let is_sanrenkou = h.melds_tiles().iter().any(|&t| {
-			let expected = SANRENKOU_MASK << ((t - t!(1m) as u8) >> 1);
-			let actual_man = man_counts & expected;
-			let actual_pin = pin_counts & expected;
-			let actual_sou = sou_counts & expected;
-			actual_man == expected || actual_pin == expected || actual_sou == expected
-		});
-		if is_sanrenkou {
+		let is_sanrenkou =
+			core::simd::cmp::SimdPartialEq::simd_eq(expected3, actual_man) |
+			core::simd::cmp::SimdPartialEq::simd_eq(expected3, actual_pin) |
+			core::simd::cmp::SimdPartialEq::simd_eq(expected3, actual_sou);
+		if is_sanrenkou.any() {
 			return Self::Sanrenkou;
 		}
 
@@ -2150,74 +1917,78 @@ impl NumRenkou {
 	}
 }
 
-fn is_akadora_sanshoku(ts: &[u8]) -> bool {
-	ts.iter().map(|&t| t & 0b1).sum::<u8>() >= 3
+fn is_akadora_sanshoku<const N: usize>(ts: core::simd::Simd<u8, N>) -> bool {
+	core::simd::num::SimdUint::reduce_sum(ts & core::simd::Simd::splat(0b1)) >= 3
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct Honchinitsu(u8);
+#[derive(Copy)]
+#[derive_const(Clone)]
+#[repr(u8)]
+#[expect(unused)] // Constructed via `transmute`
+pub(crate) enum Honchinitsu {
+	None = 0b00,
+	Honitsu = 0b01,
+	Chinitsu = 0b10,
+}
 
 impl Honchinitsu {
-	fn new(ts: impl IntoIterator<Item = u8>) -> Self {
-		fn inner(result: &mut u8, suit: &mut Option<NumberSuit>, t: u8) {
-			if let Some(suit_) = NumberSuit::of(t) {
-				if let Some(suit) = *suit {
-					// suit != t.suit() => Neither
-					//
-					// Micro-optimization: Any way to generate a value >= 0b10 is sufficient, but `+ << 1` generates the simplest code on RV - an `sh1add`.
-					// On x86_64 both `| << 1` and `+ << 1` generate `add; add`.
-					*result += u8::from(suit != suit_) << 1;
-				}
-				// Micro-optimization: Doing this always instead of inside an `else` seems redundant, but generates smaller code with fewer branches.
-				*suit = Some(suit_);
-			}
-			else {
-				// Honitsu
-				*result |= 0b01;
-			}
-		}
+	fn new<const N: usize>(ts: core::simd::Simd<u8, N>) -> Self {
+		//   mask | result
+		// =======+================
+		//  00000 | None (impossible)
+		//  00010 | Chinitsu (man)
+		//  00100 | Chinitsu (pin)
+		//  00110 | None
+		//  01000 | Chinitsu (sou)
+		//  01010 | None
+		//  01100 | None
+		//  01110 | None
+		//  10000 | None
+		//  10010 | Honitsu (man)
+		//  10100 | Honitsu (pin)
+		//  10110 | None
+		//  11000 | Honitsu (sou)
+		//  11010 | None
+		//  11100 | None
+		//  11110 | None
 
-		let mut suit = None;
+		const INNERS: u32 = {
+			let mut result = 0_u32;
+			result |= (Honchinitsu::Chinitsu as u32) << 0b00010;
+			result |= (Honchinitsu::Chinitsu as u32) << 0b00100;
+			result |= (Honchinitsu::Chinitsu as u32) << 0b01000;
+			result |= (Honchinitsu::Honitsu as u32) << 0b10010;
+			result |= (Honchinitsu::Honitsu as u32) << 0b10100;
+			result |= (Honchinitsu::Honitsu as u32) << 0b11000;
+			result
+		};
 
-		// 0x00 => Chinitsu
-		// 0x01 => Honitsu
-		//    _ => None
-		//
-		// This is effectively a tri-state like `Option<bool>`, but avoids needing to make the effort to encode `None` as `0x02` specifically.
-		// With this approach, any value > 0x01 acts as `None`.
-		//
-		// Start as Chinitsu, then weaken it to Honitsu or None.
-		let mut result = 0b00;
+		let suits = Tile::suits4(ts);
+		let masks = core::simd::Simd::splat(0b10) << suits;
+		let mask = core::simd::num::SimdUint::reduce_or(masks);
 
-		for t in ts {
-			inner(&mut result, &mut suit, t);
-		}
-
-		// suit.is_none() => None
-		result += u8::from(suit.is_none()) << 1;
-
-		Self(result)
-	}
-
-	pub(crate) const fn is_honitsu(self) -> bool {
-		self.0 == 0b01
-	}
-
-	pub(crate) const fn is_chinitsu(self) -> bool {
-		self.0 == 0b00
+		// Micro-optimization: rustc generates `mask & 0b11110` to normalize the shift amount to 5 bits,
+		// because it seems to not notice that `mask` is already only five bits. So we assert it ourselves.
+		unsafe { core::hint::assert_unchecked(mask <= 0b11110); }
+		let result = (INNERS >> mask) & 0b11;
+		unsafe { core::mem::transmute::<u8, Self>(result as u8) }
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
+#[derive_const(Clone)]
+#[repr(u8)]
+#[expect(unused)] // Constructed via `transmute`
 pub(crate) enum Dairin {
-	None,
-	Man,
-	Pin,
-	Sou,
-	Ji,
+	None = 0b0000,
+	Man = 0b0001,
+	Pin = 0b0010,
+	Sou = 0b0100,
+	Ji = 0b1000,
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
@@ -2390,8 +2161,8 @@ mod tests {
 
 		fn is_honitsu(&self) -> bool {
 			match self {
-				Self::Regular(h) => h.honchinitsu().is_honitsu(),
-				Self::Chiitoi(h) => h.honchinitsu().is_honitsu(),
+				Self::Regular(h) => matches!(h.honchinitsu(), Honchinitsu::Honitsu),
+				Self::Chiitoi(h) => matches!(h.honchinitsu(), Honchinitsu::Honitsu),
 				Self::KokushiMusou(_) => false,
 			}
 		}
@@ -2422,8 +2193,8 @@ mod tests {
 
 		fn is_chinitsu(&self) -> bool {
 			match self {
-				Self::Regular(h) => h.honchinitsu().is_chinitsu(),
-				Self::Chiitoi(h) => h.honchinitsu().is_chinitsu(),
+				Self::Regular(h) => matches!(h.honchinitsu(), Honchinitsu::Chinitsu),
+				Self::Chiitoi(h) => matches!(h.honchinitsu(), Honchinitsu::Chinitsu),
 				Self::KokushiMusou(_) => false,
 			}
 		}
@@ -12208,13 +11979,13 @@ mod tests {
 
 	#[test]
 	fn chanta_routou() {
-		const EXPECTED_TANYAO: (bool, bool, bool, bool, bool, bool, bool) = (true, false, false, false, false, false, false);
-		const EXPECTED_CHANTA: (bool, bool, bool, bool, bool, bool, bool) = (false, true, false, false, false, false, false);
-		const EXPECTED_HONROUTOU: (bool, bool, bool, bool, bool, bool, bool) = (false, false, true, false, false, false, false);
-		const EXPECTED_JUNCHAN: (bool, bool, bool, bool, bool, bool, bool) = (false, false, false, true, false, false, false);
-		const EXPECTED_TSUUIISOU: (bool, bool, bool, bool, bool, bool, bool) = (false, false, false, false, true, false, false);
-		const EXPECTED_CHINROUTOU: (bool, bool, bool, bool, bool, bool, bool) = (false, false, false, false, false, true, false);
-		const EXPECTED_OTHER: (bool, bool, bool, bool, bool, bool, bool) = (false, false, false, false, false, false, true);
+		const EXPECTED_TANYAO: [bool; 7] = { let mut result = [false; 7]; result[0] = true; result };
+		const EXPECTED_CHANTA: [bool; 7] = { let mut result = [false; 7]; result[1] = true; result };
+		const EXPECTED_HONROUTOU: [bool; 7] = { let mut result = [false; 7]; result[2] = true; result };
+		const EXPECTED_JUNCHAN: [bool; 7] = { let mut result = [false; 7]; result[3] = true; result };
+		const EXPECTED_TSUUIISOU: [bool; 7] = { let mut result = [false; 7]; result[4] = true; result };
+		const EXPECTED_CHINROUTOU: [bool; 7] = { let mut result = [false; 7]; result[5] = true; result };
+		const EXPECTED_OTHER: [bool; 7] = { let mut result = [false; 7]; result[6] = true; result };
 
 		for (input_lhs, input_rhs, expected) in [
 			(ChantaRoutou::has_terminals(), ChantaRoutou::has_terminals(), EXPECTED_JUNCHAN),
@@ -12235,7 +12006,7 @@ mod tests {
 			(ChantaRoutou::other(), ChantaRoutou::other(), EXPECTED_TANYAO),
 		] {
 			let actual = input_lhs | input_rhs;
-			let actual = (actual.is_tanyao(), actual.is_chanta(), actual.is_honroutou(), actual.is_junchan(), actual.is_tsuuiisou(), actual.is_chinroutou(), actual.is_other());
+			let actual = [actual.is_tanyao(), actual.is_chanta(), actual.is_honroutou(), actual.is_junchan(), actual.is_tsuuiisou(), actual.is_chinroutou(), actual.is_other()];
 			assert_eq!(actual, expected, "{input_lhs:?} | {input_rhs:?} = {actual:?}, expected {expected:?}");
 		}
 	}

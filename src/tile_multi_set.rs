@@ -1,7 +1,7 @@
 use crate::{
 	GameType,
 	NumberTile,
-	Tile,
+	Tile, Tile34Set,
 };
 
 // Being precise about there being only one of each `FiveRed` and three of each `Five` means that
@@ -23,14 +23,14 @@ use crate::{
 /// See the pre-defined aliases [`Tile27MultiSet`], [`Tile34MultiSet`] and [`Tile37MultiSet`].
 pub struct TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	counts: u128,
 	element: core::marker::PhantomData<TElement>,
 }
 
 /// Parameter for [`TileMultiSet`] to control what type of tiles it holds.
-pub trait TileMultiSetElement {
+pub const trait TileMultiSetElement {
 	type Tile: Copy + core::fmt::Debug + 'static;
 
 	fn tile_to_offset(tile: Self::Tile) -> (u8, u8);
@@ -44,20 +44,13 @@ pub trait TileMultiSetElement {
 
 impl<TElement> TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
-	pub const fn new() -> Self {
-		Self {
-			counts: 0,
-			element: core::marker::PhantomData,
-		}
-	}
-
 	/// Create a `TileMultiSet` that contains all copies of all the tiles that exist in the given game type.
-	pub fn all(game_type: GameType) -> Self {
+	pub const fn all(game_type: GameType) -> Self {
 		match game_type {
-			GameType::Yonma => tile_multi_set_all_yonma(),
-			GameType::Sanma => tile_multi_set_all_sanma(),
+			GameType::Yonma => const { tile_multi_set_all_yonma() },
+			GameType::Sanma => const { tile_multi_set_all_sanma() },
 		}
 	}
 
@@ -89,26 +82,26 @@ where
 	}
 
 	/// Returns `true` if this set contains the given tile.
-	pub fn contains(&self, tile: TElement::Tile) -> bool {
+	pub const fn contains(&self, tile: TElement::Tile) -> bool {
 		self.get(tile) != 0
 	}
 
 	/// Gets the number of occurences of the given tile in this set.
-	pub fn get(&self, tile: TElement::Tile) -> u8 {
+	pub const fn get(&self, tile: TElement::Tile) -> u8 {
 		self.tile_to_count_ref(tile)
 	}
 
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `false` when inserting more of a tile than should exist.
-	pub fn insert(&mut self, tile: TElement::Tile) -> bool {
+	pub const fn insert(&mut self, tile: TElement::Tile) -> bool {
 		self.insert_many(tile, 1)
 	}
 
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `false` when inserting more of a tile than should exist.
-	pub fn insert_many(&mut self, tile: TElement::Tile, additional: u8) -> bool {
+	pub const fn insert_many(&mut self, tile: TElement::Tile, additional: u8) -> bool {
 		let (mut count, max) = self.tile_to_count_max_mut(tile);
 		let new_count = count.get().saturating_add(additional);
 		if new_count <= max {
@@ -137,7 +130,7 @@ where
 	/// Removes the given tile from this set.
 	///
 	/// Returns `true` if this tile existed in the set, `false` otherwise.
-	pub fn remove(&mut self, tile: TElement::Tile) -> bool {
+	pub const fn remove(&mut self, tile: TElement::Tile) -> bool {
 		let (mut count, _) = self.tile_to_count_max_mut(tile);
 		if let Some(new_count) = count.get().checked_sub(1) {
 			count.set(new_count);
@@ -151,20 +144,20 @@ where
 	/// Removes all instances of the given tile from this set.
 	///
 	/// Returns the number of instances removed.
-	pub fn remove_all(&mut self, tile: TElement::Tile) -> u8 {
+	pub const fn remove_all(&mut self, tile: TElement::Tile) -> u8 {
 		let (mut count, _) = self.tile_to_count_max_mut(tile);
 		let result = count.get();
 		count.set(0);
 		result
 	}
 
-	fn tile_to_count_ref(&self, tile: TElement::Tile) -> u8 {
+	const fn tile_to_count_ref(&self, tile: TElement::Tile) -> u8 {
 		let (offset, _) = TElement::tile_to_offset(tile);
 		let count = (self.counts >> (offset * 3)) & 0b111;
 		count as u8
 	}
 
-	fn tile_to_count_max_mut(&mut self, tile: TElement::Tile) -> (U3Mut<'_>, u8) {
+	const fn tile_to_count_max_mut(&mut self, tile: TElement::Tile) -> (U3Mut<'_>, u8) {
 		let (offset, max) = TElement::tile_to_offset(tile);
 		(
 			U3Mut {
@@ -176,9 +169,9 @@ where
 	}
 }
 
-impl<TElement> Clone for TileMultiSet<TElement>
+const impl<TElement> Clone for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -190,7 +183,7 @@ where
 
 impl<TElement> core::fmt::Debug for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 	Self: Clone + IntoIterator<Item = (TElement::Tile, core::num::NonZero<u8>)>,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -198,21 +191,24 @@ where
 	}
 }
 
-impl<TElement> Default for TileMultiSet<TElement>
+const impl<TElement> Default for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn default() -> Self {
-		Self::new()
+		Self {
+			counts: 0,
+			element: Default::default(),
+		}
 	}
 }
 
 impl<TElement> FromIterator<(TElement::Tile, u8)> for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = (TElement::Tile, u8)> {
-		let mut result = Self::new();
+		let mut result = Self::default();
 		for (tile, additional) in iter {
 			_ = result.insert_many(tile, additional);
 		}
@@ -222,7 +218,7 @@ where
 
 impl<TElement> IntoIterator for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 	TileMultiSetIntoIter<TElement>: Iterator,
 {
 	type Item = <<Self as IntoIterator>::IntoIter as Iterator>::Item;
@@ -236,28 +232,28 @@ where
 	}
 }
 
-impl<TElement> PartialEq for TileMultiSet<TElement>
+const impl<TElement> PartialEq for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn eq(&self, other: &Self) -> bool {
 		self.counts == other.counts
 	}
 }
 
-impl<TElement> Eq for TileMultiSet<TElement>
+const impl<TElement> Eq for TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {}
 
-fn tile_multi_set_all_yonma<TElement>() -> TileMultiSet<TElement>
+const fn tile_multi_set_all_yonma<TElement>() -> TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	let tiles = TElement::all_yonma();
 
-	// This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`
-	let mut result = TileMultiSet::new();
+	// TODO(rustup): This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`.
+	let mut result = TileMultiSet::default();
 	let mut i = 0;
 	while i < tiles.len() {
 		result.insert(tiles[i]);
@@ -267,14 +263,14 @@ where
 	result
 }
 
-fn tile_multi_set_all_sanma<TElement>() -> TileMultiSet<TElement>
+const fn tile_multi_set_all_sanma<TElement>() -> TileMultiSet<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	let tiles = TElement::all_sanma();
 
-	// This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`
-	let mut result = TileMultiSet::new();
+	// TODO(rustup) This uses an indexed `while` loop instead of `.collect()` so that it can be `const fn`.
+	let mut result = TileMultiSet::default();
 	let mut i = 0;
 	while i < tiles.len() {
 		result.insert(tiles[i]);
@@ -287,7 +283,7 @@ where
 /// An [`Iterator`] of all tiles in a [`TileMultiSet`].
 pub struct TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	counts: u128,
 	element: core::marker::PhantomData<TElement>,
@@ -295,9 +291,9 @@ where
 
 impl<TElement> TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
-	fn next_inner(&mut self, offset: u32) -> (TElement::Tile, core::num::NonZero<u8>) {
+	const fn next_inner(&mut self, offset: u32) -> (TElement::Tile, core::num::NonZero<u8>) {
 		#[expect(clippy::cast_possible_truncation)]
 		let offset = (offset / 3) as u8;
 		let tile = TElement::offset_to_tile(offset);
@@ -309,9 +305,9 @@ where
 	}
 }
 
-impl<TElement> Clone for TileMultiSetIntoIter<TElement>
+const impl<TElement> Clone for TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -323,7 +319,7 @@ where
 
 impl<TElement> core::fmt::Debug for TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("TileMultiSetIntoIter").finish_non_exhaustive()
@@ -332,7 +328,7 @@ where
 
 impl<TElement> Iterator for TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	type Item = (TElement::Tile, core::num::NonZero<u8>);
 
@@ -352,7 +348,7 @@ where
 
 impl<TElement> DoubleEndedIterator for TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {
 	fn next_back(&mut self) -> Option<Self::Item> {
 		Some(self.next_inner(self.counts.highest_one()?))
@@ -361,7 +357,7 @@ where
 
 impl<TElement> core::iter::FusedIterator for TileMultiSetIntoIter<TElement>
 where
-	TElement: TileMultiSetElement,
+	TElement: const TileMultiSetElement,
 {}
 
 /// A multiset specialized to hold [`NumberTile`]s in a compact non-allocating representation.
@@ -376,10 +372,11 @@ assert_size_of!(Tile27MultiSet, 16);
 
 /// Parameterizes a [`TileMultiSet`] to hold [`NumberTile`]s,
 /// considering [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles.
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 pub struct Tile27MultiSetElement;
 
-impl TileMultiSetElement for Tile27MultiSetElement {
+const impl TileMultiSetElement for Tile27MultiSetElement {
 	type Tile = NumberTile;
 
 	fn tile_to_offset(tile: Self::Tile) -> (u8, u8) {
@@ -389,7 +386,7 @@ impl TileMultiSetElement for Tile27MultiSetElement {
 	}
 
 	fn offset_to_tile(offset: u8) -> Self::Tile {
-		let tile = (offset << 1) + t!(1m) as u8;
+		let tile = (offset << 1) + tn!(1m) as u8;
 		unsafe { core::mem::transmute::<u8, NumberTile>(tile) }
 	}
 
@@ -414,10 +411,11 @@ assert_size_of!(Tile34MultiSet, 16);
 
 /// Parameterizes a [`TileMultiSet`] to hold [`Tile`]s,
 /// considering [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as identical tiles.
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 pub struct Tile34MultiSetElement;
 
-impl TileMultiSetElement for Tile34MultiSetElement {
+const impl TileMultiSetElement for Tile34MultiSetElement {
 	type Tile = Tile;
 
 	fn tile_to_offset(tile: Self::Tile) -> (u8, u8) {
@@ -452,10 +450,11 @@ assert_size_of!(Tile37MultiSet, 16);
 
 /// Parameterizes a [`TileMultiSet`] to hold [`Tile`]s,
 /// considering [`Five`](crate::Number::Five) and [`FiveRed`](crate::Number::FiveRed) as distinct tiles.
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Debug)]
+#[derive_const(Clone)]
 pub struct Tile37MultiSetElement;
 
-impl TileMultiSetElement for Tile37MultiSetElement {
+const impl TileMultiSetElement for Tile37MultiSetElement {
 	type Tile = Tile;
 
 	fn tile_to_offset(tile: Self::Tile) -> (u8, u8) {
@@ -494,20 +493,27 @@ impl U3Mut<'_> {
 		count as u8
 	}
 
-	fn set(&mut self, value: u8) {
+	const fn set(&mut self, value: u8) {
 		*self.counts = *self.counts & !(0b111 << (self.offset * 3)) | (u128::from(value & 0b111) << (self.offset * 3));
 	}
 }
 
 impl Tile34MultiSet {
 	/// Treats this `Tile34MultiSet` as containing dora indicators, and returns a new `Tile34MultiSet` containing the corresponding dora.
-	pub fn indicates_dora(&self, game_type: GameType) -> Self {
-		const MASK_MAN_YONMA: u128 = 0b000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_111_111_111_111_111_111_111_111;
-		const MASK_MAN_SANMA: u128 = 0b000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_111;
-		const MASK_NEXT: u128 =      0b000_111_111_000_111_111_111_000_111_111_111_111_111_111_111_111_000_111_111_111_111_111_111_111_111_000_000_000_000_000_000_000_000_000;
-		const MASK_9X: u128 =        0b000_000_000_000_000_000_000_111_000_000_000_000_000_000_000_000_111_000_000_000_000_000_000_000_000_111_000_000_000_000_000_000_000_000;
-		const MASK_N: u128 =         0b000_000_000_111_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000;
-		const MASK_R: u128 =         0b111_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000;
+	pub const fn indicates_dora(&self, game_type: GameType) -> Self {
+		#[expect(clippy::needless_pass_by_value)]
+		const fn to_mask(set: Tile34Set) -> u128 {
+			let present = u128::from(set.present);
+			let present = present.deposit_bits(0b001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001_001);
+			(present << 2) | (present << 1) | present
+		}
+
+		const MASK_MAN_YONMA: u128 = to_mask(t34set! { 1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m });
+		const MASK_MAN_SANMA: u128 = to_mask(t34set! { 1m });
+		const MASK_NEXT: u128 = to_mask(t34set! { 1p, 2p, 3p, 4p, 5p, 6p, 7p, 8p, 1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, E, S, W, Wh, G });
+		const MASK_9X: u128 = to_mask(t34set! { 9m, 9p, 9s });
+		const MASK_N: u128 = to_mask(t34set! { N });
+		const MASK_R: u128 = to_mask(t34set! { R });
 
 		let Self { counts, element } = self;
 
@@ -526,6 +532,7 @@ impl Tile34MultiSet {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
 	extern crate std;
 
@@ -534,7 +541,7 @@ mod tests {
 
 	#[test]
 	fn all_27() {
-		let mut set = Tile27MultiSet::new();
+		let mut set = Tile27MultiSet::default();
 
 		for &tile in NumberTile::all(GameType::Yonma) {
 			assert!(set.insert(tile));
@@ -600,7 +607,7 @@ mod tests {
 
 	#[test]
 	fn all_34() {
-		let mut set = Tile34MultiSet::new();
+		let mut set = Tile34MultiSet::default();
 
 		for &tile in Tile::all(GameType::Yonma) {
 			assert!(set.insert(tile));
@@ -666,7 +673,7 @@ mod tests {
 
 	#[test]
 	fn all_37() {
-		let mut set = Tile37MultiSet::new();
+		let mut set = Tile37MultiSet::default();
 
 		for &tile in Tile::all(GameType::Yonma) {
 			assert!(set.insert(tile));
