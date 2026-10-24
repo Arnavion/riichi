@@ -444,16 +444,14 @@ where
 	fn next(&mut self) -> Option<Self::Item> {
 		// Common implementation independent of `NM` to combat monomorphization bloat.
 		fn inner(
-			ji: &mut Option<LookupHonors>,
+			ji: Option<LookupHonors>,
 			decomposition_ptr: &[*const (Option<NumberMeld>, Meld<NumberMeld>)],
-			decomposition_len: &[u8],
 			decomposition_base: &[NumberTile],
 			decomposition_i: &mut [u8],
 			melds: &mut [core::mem::MaybeUninit<ScorableHandMeld>],
 		) -> Option<ScorableHandPair> {
-			let ji_ = (*ji)?;
+			let ji = ji?;
 
-			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_len.len()); }
 			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_base.len()); }
 			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_i.len()); }
 
@@ -463,7 +461,7 @@ where
 			// If one or more of the suits did not form a valid decomposition, the corresponding slice would've been empty and we would've returned a neutered iterator in `new()`.
 			//
 			// So, we will fill the `melds` slice exactly.
-			let mut pair = ji_.pair.map(|h| {
+			let mut pair = ji.pair.map(|h| {
 				let t = t!(E) as u8 + h as u8;
 				unsafe { core::mem::transmute::<u8, Tile>(t) }
 			});
@@ -482,28 +480,29 @@ where
 					unsafe { core::mem::transmute::<u8, Tile>(t) }
 				}));
 			}
-			unsafe { ji_.write_melds_to(melds); }
+			unsafe { ji.write_melds_to(melds); }
 			let pair = unsafe { pair.unwrap_unchecked() };
 			let pair = ScorableHandPair(pair);
-
-			for (i, &len) in decomposition_i.iter_mut().zip(decomposition_len).rev() {
-				*i += 1;
-				if *i < len {
-					return Some(pair);
-				}
-				*i = 0;
-			}
-
-			*ji = None;
 
 			Some(pair)
 		}
 
 		let mut melds = [const { core::mem::MaybeUninit::uninit() }; NM];
-		let pair = inner(&mut self.ji, &self.decomposition_ptr, &self.decomposition_len, &self.decomposition_base, &mut self.decomposition_i, &mut melds)?;
-		// SAFETY: The size of `melds` is correct based on the number of tiles in `ts`. So if `self.0.next_to()` returned `Some(_)`,
-		// we know that `melds` must have been completely filled with melds.
+		let pair = inner(self.ji, &self.decomposition_ptr, &self.decomposition_base, &mut self.decomposition_i, &mut melds)?;
+		// SAFETY: If `inner()` returned `Some(_)`, we know that `melds` must have been completely filled with melds.
 		let melds = unsafe { core::mem::MaybeUninit::array_assume_init(melds) };
+
+		let decomposition_i = core::simd::Simd::from_array(self.decomposition_i);
+		let decomposition_len = core::simd::Simd::from_array(self.decomposition_len);
+		let candidates = core::simd::cmp::SimdPartialOrd::simd_lt(decomposition_i + core::simd::Simd::splat(1), decomposition_len);
+		if let Some(to_increment) = candidates.last_set() {
+			self.decomposition_i[to_increment] += 1;
+			self.decomposition_i[to_increment..].fill(0);
+		}
+		else {
+			self.ji = None;
+		}
+
 		Some((melds, pair))
 	}
 
@@ -851,7 +850,7 @@ impl Iterator for LookupForTenhou {
 						let new_tile = unsafe { new_tile.unwrap_unchecked() };
 						(ms, pair, new_tile)
 					};
-				self.current_a = extract_fourth_meld(*ms, *pair, new_tile, TsumoOrRon::Tsumo, self.lookup.reds);
+				self.current_a = extract_fourth_meld::<3>(*ms, *pair, new_tile, TsumoOrRon::Tsumo, self.lookup.reds);
 				continue;
 			};
 			break Some((ms, md, pair));
