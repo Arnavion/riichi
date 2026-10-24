@@ -384,9 +384,9 @@ macro_rules! hand_to_scorable_hands {
 }
 
 hand_to_scorable_hands! {
-	Hand<4, 3>::fn to_scorable_hands() -> #[size_of = 144] struct Hand4ScorableHands { [ma, mb, mc] + [] },
-	Hand<7, 2>::fn to_scorable_hands() -> #[size_of = 152] struct Hand7ScorableHands { [ma, mb] + [mc] },
-	Hand<10, 1>::fn to_scorable_hands() -> #[size_of = 176] struct Hand10ScorableHands { [ma] + [mb, mc] },
+	Hand<4, 3>::fn to_scorable_hands() -> #[size_of = 80] struct Hand4ScorableHands { [ma, mb, mc] + [] },
+	Hand<7, 2>::fn to_scorable_hands() -> #[size_of = 96] struct Hand7ScorableHands { [ma, mb] + [mc] },
+	Hand<10, 1>::fn to_scorable_hands() -> #[size_of = 136] struct Hand10ScorableHands { [ma] + [mb, mc] },
 }
 
 macro_rules! hand_tenpai {
@@ -518,7 +518,7 @@ pub struct Hand13ScorableHands {
 	lookup: LookupForNewTile<3>,
 }
 
-assert_size_of!(Hand13ScorableHands, 184);
+assert_size_of!(Hand13ScorableHands, 152);
 
 impl Iterator for Hand13ScorableHands {
 	type Item = ScorableHand;
@@ -594,7 +594,7 @@ pub struct Hand14ScorableHands {
 	regular: LookupForTenhou,
 }
 
-assert_size_of!(Hand14ScorableHands, 208);
+assert_size_of!(Hand14ScorableHands, 176);
 
 impl Iterator for Hand14ScorableHands {
 	type Item = ScorableHand;

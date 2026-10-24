@@ -288,7 +288,7 @@ mod numbers {
 				let key =
 					u32::from(THREE_DIGITS[(key & 0x1FF) as usize]) +
 					5_u32.pow(3) * u32::from(THREE_DIGITS[((key >> 9) & 0x1FF) as usize]) +
-					5_u32.pow(6) * u32::from(THREE_DIGITS[(key >> 18) as usize]);
+					5_u32.pow(6) * u32::from(THREE_DIGITS[((key >> 18) & 0x1FF) as usize]);
 
 				let key = key as usize;
 
@@ -327,42 +327,180 @@ mod numbers {
 }
 
 #[derive(Debug)]
-#[derive_const(Clone, Default)]
-pub(crate) struct Lookup<const NM: usize>(LookupInner);
-
-// Common implementation independent of `NM` to combat monomorphization bloat.
-#[derive(Debug)]
-struct LookupInner {
+pub(crate) struct Lookup<const NM: usize>
+where
+	[(); NM + 1]:,
+{
 	ji: Option<LookupHonors>,
-	decomposition1: &'static [(Option<NumberMeld>, Meld<NumberMeld>)],
-	decomposition1_base: NumberTile,
-	decomposition2: &'static [(Option<NumberMeld>, Meld<NumberMeld>)],
-	decomposition2_base: NumberTile,
-	decomposition2_i: u8,
-	decomposition3: &'static [(Option<NumberMeld>, Meld<NumberMeld>)],
-	decomposition3_base: NumberTile,
-	decomposition3_i: u8,
-	decomposition4: &'static [(Option<NumberMeld>, Meld<NumberMeld>)],
-	decomposition4_base: NumberTile,
-	decomposition4_i: u8,
-	decomposition5: &'static [(Option<NumberMeld>, Meld<NumberMeld>)],
-	decomposition5_base: NumberTile,
-	decomposition5_i: u8,
+	decomposition_ptr: [*const (Option<NumberMeld>, Meld<NumberMeld>); NM + 1],
+	decomposition_len: [u8; NM + 1],
+	decomposition_base: [NumberTile; NM + 1],
+	decomposition_i: [u8; NM + 1],
 	reds: [u8; 3],
 }
 
-impl<const NM: usize> Lookup<NM> {
+impl<const NM: usize> Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	pub(crate) fn new(ts: &Tile37CountedMultiSet<{ NM * 3 + 2 }>) -> Self {
-		Self(LookupInner::new(ts.as_ref()))
+		// Common implementation independent of `NM` to combat monomorphization bloat.
+		fn inner(
+			ts: &Tile37MultiSet,
+			decomposition_ptr: &mut [*const (Option<NumberMeld>, Meld<NumberMeld>)],
+			decomposition_len: &mut [u8],
+			decomposition_base: &mut [NumberTile],
+			reds: &mut [u8; 3],
+		) -> Option<LookupHonors> {
+			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_len.len()); }
+			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_base.len()); }
+
+			*reds = t![0m, 0p, 0s].map(|t| ts.get(t));
+
+			let ts = Tile34MultiSet::from(ts.clone());
+			let man = ts.man();
+			let pin = ts.pin();
+			let sou = ts.sou();
+			let ji = ts.ji();
+
+			let mut slots = decomposition_ptr.iter_mut().zip(decomposition_len).zip(decomposition_base);
+
+			// If any lookup failed, then the hand as a whole cannot be decomposed, so we can just terminate early.
+			let ji = LookupHonors::new(ji.0)?;
+			let mut has_pair = ji.pair.is_some();
+			for ((key, len), base) in [(man, tn!(1m)), (pin, tn!(1p)), (sou, tn!(1s))] {
+				if len % 3 == 1 {
+					return None;
+				}
+				for decomposition in numbers::lookup(key) {
+					// All elements of each slice have the same shape. Eg if the first element is `(Some(_), m2(..))`,
+					// then the other elements will also be `(Some(_), m2(..))`. This means that if we find one combination of elements
+					// that produces zero or more than two pairs, then every combination will also do that, so we can just terminate early.
+					let (pair, _) = decomposition.first()?;
+					if pair.is_some() && core::mem::replace(&mut has_pair, true) {
+						return None;
+					}
+					// More decompositions than slots means this hand as a whole cannot have a valid decomposition.
+					let ((slot_ptr, slot_len), slot_base) = slots.next()?;
+					*slot_ptr = decomposition.as_ptr();
+					#[expect(clippy::cast_possible_truncation)]
+					{
+						*slot_len = decomposition.len() as u8;
+					}
+					*slot_base = base;
+				}
+			}
+
+			has_pair.then_some(ji)
+		}
+
+		let ts = ts.as_ref();
+		let mut result = Self::default();
+		result.ji = inner(ts, &mut result.decomposition_ptr, &mut result.decomposition_len, &mut result.decomposition_base, &mut result.reds);
+		result
 	}
 }
 
-impl<const NM: usize> Iterator for Lookup<NM> {
+// TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
+const impl<const NM: usize> Clone for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
+	fn clone(&self) -> Self {
+		Self {
+			ji: self.ji,
+			decomposition_ptr: self.decomposition_ptr,
+			decomposition_len: self.decomposition_len,
+			decomposition_base: self.decomposition_base,
+			decomposition_i: self.decomposition_i,
+			reds: self.reds,
+		}
+	}
+}
+
+const impl<const NM: usize> Default for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
+	fn default() -> Self {
+		Self {
+			ji: Default::default(),
+			decomposition_ptr: [numbers::EMPTY.as_ptr(); _],
+			#[expect(clippy::cast_possible_truncation)]
+			decomposition_len: [numbers::EMPTY.len() as u8; _],
+			decomposition_base: [tn!(1m); _],
+			decomposition_i: [Default::default(); _],
+			reds: [Default::default(); _],
+		}
+	}
+}
+
+impl<const NM: usize> Iterator for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	type Item = ([ScorableHandMeld; NM], ScorableHandPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
+		// Common implementation independent of `NM` to combat monomorphization bloat.
+		fn inner(
+			ji: &mut Option<LookupHonors>,
+			decomposition_ptr: &[*const (Option<NumberMeld>, Meld<NumberMeld>)],
+			decomposition_len: &[u8],
+			decomposition_base: &[NumberTile],
+			decomposition_i: &mut [u8],
+			melds: &mut [core::mem::MaybeUninit<ScorableHandMeld>],
+		) -> Option<ScorableHandPair> {
+			let ji_ = (*ji)?;
+
+			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_len.len()); }
+			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_base.len()); }
+			unsafe { core::hint::assert_unchecked(decomposition_ptr.len() == decomposition_i.len()); }
+
+			let mut melds = melds.iter_mut();
+			// SAFETY: In order to have gotten here, we know that two of the given tiles correspond to a pair and the rest are in melds.
+			// If there was not one pair, we would've returned a neutered iterator in `new()`.
+			// If one or more of the suits did not form a valid decomposition, the corresponding slice would've been empty and we would've returned a neutered iterator in `new()`.
+			//
+			// So, we will fill the `melds` slice exactly.
+			let mut pair = ji_.pair.map(|h| {
+				let t = t!(E) as u8 + h as u8;
+				unsafe { core::mem::transmute::<u8, Tile>(t) }
+			});
+
+			for (j, decomposition_ptr) in decomposition_ptr.iter().enumerate() {
+				unsafe { core::hint::assert_unchecked(j < decomposition_base.len()); }
+				let base = decomposition_base[j];
+
+				let i = usize::from(decomposition_i[j]);
+
+				let (decomposition_pair, decomposition_melds) = unsafe { *decomposition_ptr.add(i) };
+
+				unsafe { decomposition_melds.write_to(&mut melds, base); }
+				pair = pair.or_else(|| decomposition_pair.map(|n| {
+					let t = base as u8 + n as u8;
+					unsafe { core::mem::transmute::<u8, Tile>(t) }
+				}));
+			}
+			unsafe { ji_.write_melds_to(melds); }
+			let pair = unsafe { pair.unwrap_unchecked() };
+			let pair = ScorableHandPair(pair);
+
+			for (i, &len) in decomposition_i.iter_mut().zip(decomposition_len).rev() {
+				*i += 1;
+				if *i < len {
+					return Some(pair);
+				}
+				*i = 0;
+			}
+
+			*ji = None;
+
+			Some(pair)
+		}
+
 		let mut melds = [const { core::mem::MaybeUninit::uninit() }; NM];
-		let pair = unsafe { self.0.next_to(&mut melds)? };
+		let pair = inner(&mut self.ji, &self.decomposition_ptr, &self.decomposition_len, &self.decomposition_base, &mut self.decomposition_i, &mut melds)?;
 		// SAFETY: The size of `melds` is correct based on the number of tiles in `ts`. So if `self.0.next_to()` returned `Some(_)`,
 		// we know that `melds` must have been completely filled with melds.
 		let melds = unsafe { core::mem::MaybeUninit::array_assume_init(melds) };
@@ -375,163 +513,16 @@ impl<const NM: usize> Iterator for Lookup<NM> {
 	}
 }
 
-impl<const NM: usize> ExactSizeIterator for Lookup<NM> {
+impl<const NM: usize> ExactSizeIterator for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn len(&self) -> usize {
-		self.0.len()
-	}
-}
-
-impl<const NM: usize> core::iter::FusedIterator for Lookup<NM> {}
-
-unsafe impl<const NM: usize> core::iter::TrustedLen for Lookup<NM> {}
-
-impl LookupInner {
-	fn new(ts: &Tile37MultiSet) -> Self {
-		let reds = t![0m, 0p, 0s].map(|t| ts.get(t));
-		let ts = Tile34MultiSet::from(ts.clone());
-		let man = ts.man();
-		let pin = ts.pin();
-		let sou = ts.sou();
-		let ji = ts.ji();
-
-		let mut result = Self { reds, ..Default::default() };
-
-		let mut slots = [
-			(&mut result.decomposition1, &mut result.decomposition1_base),
-			(&mut result.decomposition2, &mut result.decomposition2_base),
-			(&mut result.decomposition3, &mut result.decomposition3_base),
-			(&mut result.decomposition4, &mut result.decomposition4_base),
-			(&mut result.decomposition5, &mut result.decomposition5_base),
-		].into_iter();
-
-		// If any lookup failed, then the hand as a whole cannot be decomposed, so we can just terminate early.
-		let Some(ji) = LookupHonors::new(ji.0) else { return Default::default(); };
-		let mut has_pair = ji.pair.is_some();
-		for ((key, len), base) in [(man, tn!(1m)), (pin, tn!(1p)), (sou, tn!(1s))] {
-			if len % 3 == 1 {
-				return Default::default();
-			}
-			for decomposition in numbers::lookup(key) {
-				// All elements of each slice have the same shape. Eg if the first element is `(Some(_), m2(..))`,
-				// then the other elements will also be `(Some(_), m2(..))`. This means that if we find one combination of elements
-				// that produces zero or more than two pairs, then every combination will also do that, so we can just terminate early.
-				let Some((pair, _)) = decomposition.first() else { return Default::default(); };
-				if pair.is_some() && core::mem::replace(&mut has_pair, true) {
-					return Default::default();
-				}
-				// More than five decompositions means this hand as a whole cannot have a valid decomposition.
-				let Some((slot, slot_base)) = slots.next() else { return Default::default(); };
-				*slot = decomposition;
-				*slot_base = base;
-			}
-		}
-		result.ji = has_pair.then_some(ji);
-
-		drop(slots);
-
-		result
-	}
-
-	/// # Safety
-	///
-	/// `melds` must have enough elements to write (number of tiles - 2) / 3 melds.
-	unsafe fn next_to(&mut self, melds: &mut [core::mem::MaybeUninit<ScorableHandMeld>]) -> Option<ScorableHandPair> {
-		let ji = self.ji?;
-
-		let mut decomposition5_i = usize::from(self.decomposition5_i);
-		unsafe { core::hint::assert_unchecked(decomposition5_i < self.decomposition5.len()); }
-		let decomposition5 = self.decomposition5[decomposition5_i];
-
-		let mut decomposition4_i = usize::from(self.decomposition4_i);
-		unsafe { core::hint::assert_unchecked(decomposition4_i < self.decomposition4.len()); }
-		let decomposition4 = self.decomposition4[decomposition4_i];
-
-		let mut decomposition3_i = usize::from(self.decomposition3_i);
-		unsafe { core::hint::assert_unchecked(decomposition3_i < self.decomposition3.len()); }
-		let decomposition3 = self.decomposition3[decomposition3_i];
-
-		let mut decomposition2_i = usize::from(self.decomposition2_i);
-		unsafe { core::hint::assert_unchecked(decomposition2_i < self.decomposition2.len()); }
-		let decomposition2 = self.decomposition2[decomposition2_i];
-
-		let (&decomposition1, decomposition1_rest) = {
-			let decomposition1 = self.decomposition1.split_first();
-			unsafe { core::hint::assert_unchecked(!self.decomposition1.is_empty()); }
-			unsafe { decomposition1.unwrap_unchecked() }
-		};
-
-		let mut melds = melds.iter_mut();
-		// SAFETY: In order to have gotten here, we know that two of the given tiles correspond to a pair and the rest are in melds.
-		// If there was not one pair, we would've returned a neutered iterator in `new()`.
-		// If one or more of the suits did not form a valid decomposition, the corresponding slice would've been empty and we would've returned a neutered iterator in `new()`.
-		//
-		// So, as long as the caller upheld our safety requirement, we will fill the `melds` slice exactly.
-		let mut pair = ji.pair.map(|h| {
-			let t = t!(E) as u8 + h as u8;
-			unsafe { core::mem::transmute::<u8, Tile>(t) }
-		});
-		for ((decomposition_pair, decomposition_melds), base) in [
-			(decomposition1, self.decomposition1_base),
-			(decomposition2, self.decomposition2_base),
-			(decomposition3, self.decomposition3_base),
-			(decomposition4, self.decomposition4_base),
-			(decomposition5, self.decomposition5_base),
-		] {
-			unsafe { decomposition_melds.write_to(&mut melds, base); }
-			pair = pair.or_else(|| decomposition_pair.map(|n| {
-				let t = base as u8 + n as u8;
-				unsafe { core::mem::transmute::<u8, Tile>(t) }
-			}));
-		}
-		unsafe { ji.write_melds_to(melds); }
-		let pair = unsafe { pair.unwrap_unchecked() };
-		let pair = ScorableHandPair(pair);
-
-		decomposition5_i += 1;
-		if decomposition5_i == self.decomposition5.len() {
-			decomposition5_i = 0;
-			decomposition4_i += 1;
-			if decomposition4_i == self.decomposition4.len() {
-				decomposition4_i = 0;
-				decomposition3_i += 1;
-				if decomposition3_i == self.decomposition3.len() {
-					decomposition3_i = 0;
-					decomposition2_i += 1;
-					if decomposition2_i == self.decomposition2.len() {
-						decomposition2_i = 0;
-						self.decomposition1 = decomposition1_rest;
-						if self.decomposition1.is_empty() {
-							self.ji = None;
-						}
-					}
-					#[expect(clippy::cast_possible_truncation)]
-					{ self.decomposition2_i = decomposition2_i as u8; }
-				}
-				#[expect(clippy::cast_possible_truncation)]
-				{ self.decomposition3_i = decomposition3_i as u8; }
-			}
-			#[expect(clippy::cast_possible_truncation)]
-			{ self.decomposition4_i = decomposition4_i as u8; }
-		}
-		#[expect(clippy::cast_possible_truncation)]
-		{ self.decomposition5_i = decomposition5_i as u8; }
-
-		Some(pair)
-	}
-
-	fn len(&self) -> usize {
+		// This function is small enough that monomorphizing it for the unrolled fold is better.
 		if self.ji.is_some() {
-			let max = self.decomposition1.len() * self.decomposition2.len() * self.decomposition3.len() * self.decomposition4.len() * self.decomposition5.len();
-			let processed =
-				usize::from(self.decomposition5_i) + self.decomposition5.len() * (
-					usize::from(self.decomposition4_i) + self.decomposition4.len() * (
-						usize::from(self.decomposition3_i) + self.decomposition3.len() *
-							usize::from(self.decomposition2_i)
-					)
-				);
-			let result = max - processed;
-			unsafe { core::hint::assert_unchecked(result > 0); }
-			result
+			self.decomposition_len.iter()
+				.zip(&self.decomposition_i)
+				.fold(1, |acc, (&len, &i)| acc * usize::from(len) - usize::from(i))
 		}
 		else {
 			0
@@ -539,57 +530,31 @@ impl LookupInner {
 	}
 }
 
-// TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
-const impl Clone for LookupInner {
-	fn clone(&self) -> Self {
-		Self {
-			ji: self.ji,
-			decomposition1: self.decomposition1,
-			decomposition1_base: self.decomposition1_base,
-			decomposition2: self.decomposition2,
-			decomposition2_base: self.decomposition2_base,
-			decomposition2_i: self.decomposition2_i,
-			decomposition3: self.decomposition3,
-			decomposition3_base: self.decomposition3_base,
-			decomposition3_i: self.decomposition3_i,
-			decomposition4: self.decomposition4,
-			decomposition4_base: self.decomposition4_base,
-			decomposition4_i: self.decomposition4_i,
-			decomposition5: self.decomposition5,
-			decomposition5_base: self.decomposition5_base,
-			decomposition5_i: self.decomposition5_i,
-			reds: self.reds,
-		}
-	}
-}
+impl<const NM: usize> core::iter::FusedIterator for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
-const impl Default for LookupInner {
-	fn default() -> Self {
-		Self {
-			ji: Default::default(),
-			decomposition1: numbers::EMPTY,
-			decomposition1_base: tn!(1m),
-			decomposition2: numbers::EMPTY,
-			decomposition2_base: tn!(1m),
-			decomposition2_i: Default::default(),
-			decomposition3: numbers::EMPTY,
-			decomposition3_base: tn!(1m),
-			decomposition3_i: Default::default(),
-			decomposition4: numbers::EMPTY,
-			decomposition4_base: tn!(1m),
-			decomposition4_i: Default::default(),
-			decomposition5: numbers::EMPTY,
-			decomposition5_base: tn!(1m),
-			decomposition5_i: Default::default(),
-			reds: [Default::default(); _],
-		}
-	}
-}
+unsafe impl<const NM: usize> core::iter::TrustedLen for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
+
+unsafe impl<const NM: usize> Send for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
+
+unsafe impl<const NM: usize> Sync for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
 #[derive(Clone, Debug)]
 pub(crate) struct LookupForNewTile<const NM: usize>
 where
 	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
 	[(); (NM + 2).min(4)]:,
 {
 	current: core::array::IntoIter<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair), { (NM + 2).min(4) }>,
@@ -601,6 +566,7 @@ where
 impl<const NM: usize> LookupForNewTile<NM>
 where
 	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
 	[(); (NM + 2).min(4)]:,
 {
 	pub(crate) const fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
@@ -617,6 +583,7 @@ where
 const impl<const NM: usize> Default for LookupForNewTile<NM>
 where
 	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
 	[(); (NM + 2).min(4)]:,
 {
 	fn default() -> Self {
@@ -633,6 +600,7 @@ where
 impl<const NM: usize> Iterator for LookupForNewTile<NM>
 where
 	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
 	[(); (NM + 2).min(4)]:,
 {
 	type Item = ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair);
@@ -641,7 +609,7 @@ where
 		loop {
 			let Some((ms, md, pair)) = self.current.next() else {
 				let (ms, pair) = self.lookup.next()?;
-				self.current = extract_fourth_meld(ms, pair, self.new_tile, self.tsumo_or_ron, self.lookup.0.reds);
+				self.current = extract_fourth_meld(ms, pair, self.new_tile, self.tsumo_or_ron, self.lookup.reds);
 				continue;
 			};
 			break Some((ms, md, pair));
@@ -658,6 +626,7 @@ where
 impl<const NM: usize> core::iter::FusedIterator for LookupForNewTile<NM>
 where
 	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
 	[(); (NM + 2).min(4)]:,
 {}
 
@@ -882,7 +851,7 @@ impl Iterator for LookupForTenhou {
 						let new_tile = unsafe { new_tile.unwrap_unchecked() };
 						(ms, pair, new_tile)
 					};
-				self.current_a = extract_fourth_meld(*ms, *pair, new_tile, TsumoOrRon::Tsumo, self.lookup.0.reds);
+				self.current_a = extract_fourth_meld(*ms, *pair, new_tile, TsumoOrRon::Tsumo, self.lookup.reds);
 				continue;
 			};
 			break Some((ms, md, pair));
