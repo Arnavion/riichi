@@ -1,15 +1,21 @@
 #![feature(
+	array_into_iter_constructors,
 	cmp_minmax,
 	const_clone,
 	const_cmp,
 	const_convert,
 	const_default,
+	const_destruct,
+	const_drop_in_place,
 	const_index,
 	const_ops,
 	const_range,
 	const_trait_impl,
 	const_try,
 	derive_const,
+	gca_const_items,
+	gca_min_const_items,
+	generic_const_items,
 	maybe_uninit_array_assume_init,
 	maybe_uninit_fill,
 	portable_simd,
@@ -19,6 +25,9 @@
 #![cfg_attr(test, feature(
 	coverage_attribute,
 ))]
+#![expect(
+	incomplete_features, // For gca_const_items, gca_min_const_items, generic_const_items
+)]
 
 #![no_std]
 
@@ -70,8 +79,7 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
-//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
-//! # #![expect(incomplete_features)]
+//! # #![feature(const_default, const_trait_impl)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -139,8 +147,7 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
-//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
-//! # #![expect(incomplete_features)]
+//! # #![feature(const_default, const_trait_impl)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -580,10 +587,10 @@ macro_rules! td {
 /// // Hand containing 2334488s555z and an ankan of EEEE
 /// let hand = make_hand!(2s 3s 3s 4s 4s 8s 8s Wh Wh Wh { ankan E E E E });
 /// assert_eq!(hand, Hand(
-///     Tile37CountedMultiSet::new(&t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh].into()).unwrap(),
+///     Tile37CountedMultiSet::new(&t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh]).unwrap(),
 ///     [
 ///         HandMeld::ankan(t!(E), t!(E), t!(E), t!(E)).unwrap(),
-///     ].into(),
+///     ],
 /// ));
 /// ```
 #[macro_export]
@@ -608,100 +615,100 @@ macro_rules! make_hand {
 	}};
 
 	($t1:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U1, $crate::generic_array::typenum::U4>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1,].into()).unwrap(),
+		$crate::Hand::<1, 4>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1,]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U2, $crate::generic_array::typenum::U4>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2].into()).unwrap(),
+		$crate::Hand::<2, 4>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U4, $crate::generic_array::typenum::U3>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4].into()).unwrap(),
+		$crate::Hand::<4, 3>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U5, $crate::generic_array::typenum::U3>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5].into()).unwrap(),
+		$crate::Hand::<5, 3>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U7, $crate::generic_array::typenum::U2>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7].into()).unwrap(),
+		$crate::Hand::<7, 2>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U8, $crate::generic_array::typenum::U2>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8].into()).unwrap(),
+		$crate::Hand::<8, 2>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U10, $crate::generic_array::typenum::U1>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10].into()).unwrap(),
+		$crate::Hand::<10, 1>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U11, $crate::generic_array::typenum::U1>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11].into()).unwrap(),
+		$crate::Hand::<11, 1>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U13, $crate::generic_array::typenum::U0>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into()).unwrap(),
-			[].into(),
+		$crate::Hand::<13, 0>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13]).unwrap(),
+			[],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U14, $crate::generic_array::typenum::U0>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13, $t14].into()).unwrap(),
-			[].into(),
+		$crate::Hand::<14, 0>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13, $t14]).unwrap(),
+			[],
 		)
 	};
 }
@@ -994,12 +1001,12 @@ macro_rules! make_scorable_hand {
 	}};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt) => {{
-		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into()).unwrap();
+		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13]).unwrap();
 		$crate::ScorableHandKokushiMusou::new(&ts, $crate::t!($t14), $crate::TsumoOrRon::Tsumo).unwrap()
 	}};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt ron) => {{
-		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into()).unwrap();
+		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13]).unwrap();
 		$crate::ScorableHandKokushiMusou::new(&ts, $crate::t!($t14), $crate::TsumoOrRon::Ron).unwrap()
 	}};
 }
@@ -1176,7 +1183,7 @@ macro_rules! assert_size_of {
 
 mod array_vec;
 pub use array_vec::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 };
 
 mod decompose;
@@ -1351,5 +1358,21 @@ pub struct Tile34;
 #[derive_const(Clone)]
 pub struct Tile37;
 
-// Used by `make_hand!` expansion.
-pub use generic_array;
+fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; core::gca!(ADD1::<N>)] {
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; core::gca!(ADD1::<N>)];
+	// SAFETY: N + 1 > N and `[T; _]` has the same alignment as `T`.
+	unsafe { result.as_mut_ptr().cast::<[T; N]>().write(arr); }
+	result[N].write(element);
+	// SAFETY: Appending an element to a `[; N]` initializes all elements of the resulting `[; N + 1]`.
+	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
+}
+
+pub const ADD<const N1: usize, const N2: usize>: usize = N1 + N2;
+pub const ADD1<const N: usize>: usize = N + 1;
+pub const SUB1<const N: usize>: usize = N - 1;
+pub const SUB2<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<N>)>);
+pub const SUB3<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<core::gca!(SUB1::<N>)>)>);
+pub const SUB4<const N: usize>: usize = N - 4;
+pub const MELD_TILES<const N: usize>: usize = N * 3 + 2;
+pub const FOURTH_MELD_CAPACITY<const N: usize>: usize = (N + 2).min(4);
+pub const NON_ZERO<const N: usize>: bool = N != 0;
