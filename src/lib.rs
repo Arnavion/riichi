@@ -1,24 +1,32 @@
 #![feature(
+	array_into_iter_constructors,
 	cmp_minmax,
 	const_clone,
 	const_cmp,
 	const_convert,
 	const_default,
+	const_destruct,
+	const_drop_in_place,
 	const_index,
 	const_ops,
 	const_range,
 	const_trait_impl,
 	const_try,
 	derive_const,
+	gca_const_items,
+	gca_min_const_items,
+	generic_const_items,
 	maybe_uninit_array_assume_init,
 	maybe_uninit_fill,
 	portable_simd,
 	trusted_len,
-	uint_gather_scatter_bits,
 )]
 #![cfg_attr(test, feature(
 	coverage_attribute,
 ))]
+#![expect(
+	incomplete_features, // For gca_const_items, gca_min_const_items, generic_const_items
+)]
 
 #![no_std]
 
@@ -581,10 +589,10 @@ macro_rules! td {
 /// // Hand containing 2334488s555z and an ankan of EEEE
 /// let hand = make_hand!(2s 3s 3s 4s 4s 8s 8s Wh Wh Wh { ankan E E E E });
 /// assert_eq!(hand, Hand(
-///     Tile37CountedMultiSet::new(&t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh].into()).unwrap(),
+///     Tile37CountedMultiSet::new(&t![2s, 3s, 3s, 4s, 4s, 8s, 8s, Wh, Wh, Wh]).unwrap(),
 ///     [
 ///         HandMeld::ankan(t!(E), t!(E), t!(E), t!(E)).unwrap(),
-///     ].into(),
+///     ],
 /// ));
 /// ```
 #[macro_export]
@@ -609,100 +617,100 @@ macro_rules! make_hand {
 	}};
 
 	($t1:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U1, $crate::generic_array::typenum::U4>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1,].into()).unwrap(),
+		$crate::Hand::<1, 4>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1,]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $m1:tt $m2:tt $m3:tt $m4:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U2, $crate::generic_array::typenum::U4>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2].into()).unwrap(),
+		$crate::Hand::<2, 4>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
 				$crate::make_hand!(@meld $m4),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U4, $crate::generic_array::typenum::U3>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4].into()).unwrap(),
+		$crate::Hand::<4, 3>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $m1:tt $m2:tt $m3:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U5, $crate::generic_array::typenum::U3>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5].into()).unwrap(),
+		$crate::Hand::<5, 3>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
 				$crate::make_hand!(@meld $m3),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U7, $crate::generic_array::typenum::U2>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7].into()).unwrap(),
+		$crate::Hand::<7, 2>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $m1:tt $m2:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U8, $crate::generic_array::typenum::U2>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8].into()).unwrap(),
+		$crate::Hand::<8, 2>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
 				$crate::make_hand!(@meld $m2),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U10, $crate::generic_array::typenum::U1>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10].into()).unwrap(),
+		$crate::Hand::<10, 1>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $m1:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U11, $crate::generic_array::typenum::U1>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11].into()).unwrap(),
+		$crate::Hand::<11, 1>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11]).unwrap(),
 			[
 				$crate::make_hand!(@meld $m1),
-			].into(),
+			],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U13, $crate::generic_array::typenum::U0>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into()).unwrap(),
-			[].into(),
+		$crate::Hand::<13, 0>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13]).unwrap(),
+			[],
 		)
 	};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt) => {
-		$crate::Hand::<$crate::generic_array::typenum::U14, $crate::generic_array::typenum::U0>(
-			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13, $t14].into()).unwrap(),
-			[].into(),
+		$crate::Hand::<14, 0>(
+			$crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13, $t14]).unwrap(),
+			[],
 		)
 	};
 }
@@ -994,12 +1002,12 @@ macro_rules! make_scorable_hand {
 	}};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt) => {{
-		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into()).unwrap();
+		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13]).unwrap();
 		$crate::ScorableHandKokushiMusou::new(&ts, $crate::t!($t14), $crate::TsumoOrRon::Tsumo).unwrap()
 	}};
 
 	($t1:tt $t2:tt $t3:tt $t4:tt $t5:tt $t6:tt $t7:tt $t8:tt $t9:tt $t10:tt $t11:tt $t12:tt $t13:tt $t14:tt ron) => {{
-		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13].into()).unwrap();
+		let ts = $crate::Tile37CountedMultiSet::new(&$crate::t![$t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9, $t10, $t11, $t12, $t13]).unwrap();
 		$crate::ScorableHandKokushiMusou::new(&ts, $crate::t!($t14), $crate::TsumoOrRon::Ron).unwrap()
 	}};
 }
@@ -1176,7 +1184,7 @@ macro_rules! assert_size_of {
 
 mod array_vec;
 pub use array_vec::{
-	ArrayVec, ArrayVecIntoIter,
+	ArrayVec,
 };
 
 mod decompose;
@@ -1351,6 +1359,14 @@ pub struct Tile34;
 #[derive_const(Clone)]
 pub struct Tile37;
 
+pub const ADD1<const N: usize>: usize = N + 1;
+pub const SUB1<const N: usize>: usize = N - 1;
+pub const SUB2<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<N>)>);
+pub const SUB3<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<core::gca!(SUB1::<N>)>)>);
+pub const SUB4<const N: usize>: usize = N - 4;
+pub const NON_ZERO<const N: usize>: bool = N != 0;
+pub const COMPLETE_HAND_TILES<const NT: usize>: usize = NT * 3 + 2;
+
 // TODO(rustup): Replace this with `uN::extract_bits` if it starts generating as efficient code as this.
 macro_rules! make_extract_bits {
 	($(fn $name:ident ($ty:ty) { $x86_64_intrinsic:path })*) => {
@@ -1366,7 +1382,7 @@ macro_rules! make_extract_bits {
 				}
 
 				let mask: $ty = const {
-					let group: $ty = if (WIDTH as u32) >= <$ty>::BITS { <$ty>::MAX } else { (0b1 << WIDTH) - 1 };
+					let group: $ty = if u32::from(WIDTH) >= <$ty>::BITS { <$ty>::MAX } else { (0b1 << WIDTH) - 1 };
 					let mut mask = 0;
 					let mut i = 0;
 					while i < N {
@@ -1409,34 +1425,22 @@ macro_rules! make_extract_bits {
 				//                       masked_unshifted = x & 0b000_011_000_011         = 0b000_0cd_000_0gh
 				//      masked_shifted | masked_unshifted = 0b00a_bcd_00e_fgh
 
-				const MAX_STEPS: usize = <$ty>::BITS.ilog2() as usize;
+				const MASK_BEFORE_SHIFTING<const WIDTH: u8, const REPEAT: u8>: bool = 2 * WIDTH > REPEAT;
 
-				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS)); }
+				const NUM_STEPS<const WIDTH: u8, const REPEAT: u8, const N: u8>: usize =
+					if REPEAT > WIDTH {
+						N.next_power_of_two().trailing_zeros() as usize
+					}
+					else {
+						0
+					};
 
-				if N == 0 {
-					return x;
-				}
-
-				let mut x = x >> START;
-
-				// This is calculated separately from the loop that applies the operations to `x` so that it can be inside a `const` block,
-				// which guarantees that it is computed at compile-time.
-				let (mask_before_shifting, num_steps, masks) = const {
-					let mask_before_shifting = 2 * WIDTH > REPEAT;
-
-					let num_steps =
-						if REPEAT > 1 {
-							N.next_power_of_two().trailing_zeros() as usize
-						}
-						else {
-							0
-						};
-
-					let mut masks: [$ty; _] = [0; MAX_STEPS];
+				const MASKS<const WIDTH: u8, const REPEAT: u8, const N: u8>: [$ty; core::gca!(NUM_STEPS::<WIDTH, REPEAT, N>)] = {
+					let mut masks = [0; _];
 					let mut i = 0;
-					while i < num_steps {
+					while i < NUM_STEPS::<WIDTH, REPEAT, N> {
 						let w = 0b1_u32 << i;
-						let group_width = if mask_before_shifting { 1 } else { 2 } * w * u32::from(WIDTH);
+						let group_width = if MASK_BEFORE_SHIFTING::<WIDTH, REPEAT> { 1 } else { 2 } * w * u32::from(WIDTH);
 						let group: $ty = (0b1 << group_width) - 1;
 						let stride = 2 * w * u32::from(REPEAT);
 						let mut pos = 0;
@@ -1446,15 +1450,23 @@ macro_rules! make_extract_bits {
 						}
 						i += 1;
 					}
-
-					(mask_before_shifting, num_steps, masks)
+					masks
 				};
+
+				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS)); }
+
+				if N == 0 {
+					return x;
+				}
+
+				let mut x = x >> START;
+
 				let mut i = 0;
-				while i < num_steps {
+				while i < NUM_STEPS::<WIDTH, REPEAT, N> {
 					let shift = (0b1 << i) * (REPEAT - WIDTH);
-					let mask = masks[i];
+					let mask = MASKS::<WIDTH, REPEAT, N>[i];
 					x =
-						if mask_before_shifting {
+						if MASK_BEFORE_SHIFTING::<WIDTH, REPEAT> {
 							(x & mask) | ((x & !mask) >> shift)
 						}
 						else {
@@ -1474,5 +1486,11 @@ make_extract_bits! {
 	fn extract_bits64(u64) { core::arch::x86_64::_pext_u64 }
 }
 
-// Used by `make_hand!` expansion.
-pub use generic_array;
+fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; core::gca!(ADD1::<N>)] {
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; core::gca!(ADD1::<N>)];
+	// SAFETY: N + 1 > N and `[T; _]` has the same alignment as `T`.
+	unsafe { result.as_mut_ptr().cast::<[T; N]>().write(arr); }
+	result[N].write(element);
+	// SAFETY: Appending an element to a `[; N]` initializes all elements of the resulting `[; N + 1]`.
+	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
+}

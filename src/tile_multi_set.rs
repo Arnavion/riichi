@@ -1,17 +1,8 @@
-use generic_array::{
-	ArrayLength,
-	GenericArray,
-	typenum::{
-		Diff,
-		Sum,
-		Unsigned,
-		U1,
-	},
-};
-
 use crate::{
+	ADD1,
 	GameType,
 	NumberSuit, NumberTile,
+	SUB1,
 	Tile, Tile27, Tile34, Tile34Set, Tile37,
 };
 
@@ -160,31 +151,18 @@ where
 					}
 
 					if i < 3 {
-						const { assert!((9..=10).contains(&TKind::NUM_TILES_PER_NUMBER_SUIT)); }
-						match TKind::NUM_TILES_PER_NUMBER_SUIT {
-							9 => {
-								let self_counts = split_counts::<9>(self.counts[i]);
-								let other_counts = split_counts(other.counts[i]);
-								if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
-									core::hint::cold_path();
-									return false;
-								}
-							},
-							10 => {
-								let self_counts = split_counts::<10>(self.counts[i]);
-								let other_counts = split_counts(other.counts[i]);
-								if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
-									core::hint::cold_path();
-									return false;
-								}
-							},
-							_ => unsafe { core::hint::unreachable_unchecked(); },
+						let self_counts = split_counts::<core::gca!(TKind::NUM_TILES_PER_NUMBER_SUIT)>(self.counts[i]);
+						let other_counts = split_counts(other.counts[i]);
+						if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
+							core::hint::cold_path();
+							return false;
 						}
 					}
 					else {
 						let self_counts = split_counts::<7>(self.counts[i]);
 						let other_counts = split_counts(other.counts[i]);
 						if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
+							core::hint::cold_path();
 							return false;
 						}
 					}
@@ -570,9 +548,14 @@ impl Tile34MultiSet {
 	pub const fn indicates_dora(&self, game_type: GameType) -> Self {
 		#[expect(clippy::needless_pass_by_value)]
 		const fn to_mask(set: Tile34Set) -> u128 {
-			let present = u128::from(set.present);
-			let present = present.deposit_bits(0o1111111111111111111111111111111111);
-			(present << 2) | (present << 1) | present
+			// TODO(rustup): Replace this with `u128::from(set.present).deposit_bits(((0b1 << (3 * 34)) - 1) / 7) * 0b111` when `u128::deposit_bits` becomes stable.
+			let mut result = 0;
+			let mut i = 0;
+			while i < 34 {
+				result |= u128::from(((set.present >> i) & 0b1) * 0b111) << (i * 3);
+				i += 1;
+			}
+			result
 		}
 
 		const MASK_MAN_YONMA: u128 = to_mask(t34set![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m]);
@@ -714,37 +697,31 @@ impl Tile37MultiSet {
 }
 
 /// Similar to [`Tile37MultiSet`] but contains the number of tiles as a type parameter.
-#[derive(Eq, PartialEq)]
-pub struct Tile37CountedMultiSet<NT> {
+#[derive(Debug)]
+#[derive_const(Clone, Eq, PartialEq)]
+pub struct Tile37CountedMultiSet<const NT: usize> {
 	inner: Tile37MultiSet,
-	nt: core::marker::PhantomData<NT>,
 }
 
-impl<NT> Tile37CountedMultiSet<NT> {
-	pub fn new(ts: &GenericArray<Tile, NT>) -> Option<Tile37CountedMultiSet<NT>>
-	where
-		NT: ArrayLength,
-	{
+impl<const NT: usize> Tile37CountedMultiSet<NT> {
+	pub fn new(ts: &[Tile; NT]) -> Option<Tile37CountedMultiSet<NT>> {
 		fn new_inner(ts: &[Tile]) -> Option<Tile37MultiSet> {
 			ts.iter().try_fold(Tile37MultiSet::default(), |mut result, &t| result.insert(t).then_some(result))
 		}
 
 		let inner = new_inner(ts)?;
-		Some(Self { inner, nt: Default::default() })
+		Some(Self { inner })
 	}
 
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `None` when inserting more of a tile than should exist.
-	pub const fn insert(self, tile: Tile) -> Option<Tile37CountedMultiSet<Sum<NT, U1>>>
-	where
-		NT: core::ops::Add<U1>,
-	{
-		let Self { mut inner, nt: _ } = self;
+	pub const fn insert(self, tile: Tile) -> Option<Tile37CountedMultiSet<core::gca!(ADD1::<NT>)>> {
+		let Self { mut inner } = self;
 		let inserted = inner.insert(tile);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
 		if inserted {
-			Some(Tile37CountedMultiSet { inner, nt: Default::default() })
+			Some(Tile37CountedMultiSet { inner })
 		}
 		else {
 			None
@@ -754,15 +731,12 @@ impl<NT> Tile37CountedMultiSet<NT> {
 	/// Removes the given tile from this set.
 	///
 	/// Returns `Some` if this tile existed in the set, `None` otherwise.
-	pub const fn remove(self, tile: Tile) -> Option<Tile37CountedMultiSet<Diff<NT, U1>>>
-	where
-		NT: core::ops::Sub<U1>,
-	{
-		let Self { mut inner, nt: _ } = self;
+	pub const fn remove(self, tile: Tile) -> Option<Tile37CountedMultiSet<core::gca!(SUB1::<NT>)>> {
+		let Self { mut inner } = self;
 		let removed = inner.remove(tile);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
 		if removed {
-			Some(Tile37CountedMultiSet { inner, nt: Default::default() })
+			Some(Tile37CountedMultiSet { inner })
 		}
 		else {
 			None
@@ -770,27 +744,13 @@ impl<NT> Tile37CountedMultiSet<NT> {
 	}
 }
 
-const impl<NT> AsRef<Tile37MultiSet> for Tile37CountedMultiSet<NT> {
+const impl<const NT: usize> AsRef<Tile37MultiSet> for Tile37CountedMultiSet<NT> {
 	fn as_ref(&self) -> &Tile37MultiSet {
 		&self.inner
 	}
 }
 
-const impl<NT> Clone for Tile37CountedMultiSet<NT> {
-	fn clone(&self) -> Self {
-		Self { inner: self.inner.clone(), nt: self.nt }
-	}
-}
-
-impl<NT> core::fmt::Debug for Tile37CountedMultiSet<NT> {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Tile37CountedMultiSet")
-			.field("inner", &self.inner)
-			.finish_non_exhaustive()
-	}
-}
-
-impl<NT> IntoIterator for Tile37CountedMultiSet<NT> {
+impl<const NT: usize> IntoIterator for Tile37CountedMultiSet<NT> {
 	type Item = <Self::IntoIter as Iterator>::Item;
 	type IntoIter = Tile37MultiSetIntoIter;
 
@@ -799,16 +759,13 @@ impl<NT> IntoIterator for Tile37CountedMultiSet<NT> {
 	}
 }
 
-impl<NT> TryFrom<Tile37MultiSet> for Tile37CountedMultiSet<NT>
-where
-	NT: Unsigned,
-{
+impl<const NT: usize> TryFrom<Tile37MultiSet> for Tile37CountedMultiSet<NT> {
 	type Error = ();
 
 	fn try_from(inner: Tile37MultiSet) -> Result<Self, Self::Error> {
 		let total = core::simd::num::SimdUint::reduce_sum(core::simd::Simd::from_array(inner.totals));
-		if usize::from(total) == NT::USIZE {
-			Ok(Self { inner, nt: Default::default() })
+		if usize::from(total) == NT {
+			Ok(Self { inner })
 		}
 		else {
 			Err(())
@@ -816,7 +773,7 @@ where
 	}
 }
 
-const impl<NT> From<Tile37CountedMultiSet<NT>> for Tile37MultiSet {
+const impl<const NT: usize> From<Tile37CountedMultiSet<NT>> for Tile37MultiSet {
 	fn from(set: Tile37CountedMultiSet<NT>) -> Self {
 		set.inner
 	}

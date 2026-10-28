@@ -1,6 +1,5 @@
 use riichi::{
 	GameType,
-	generic_array::typenum::U,
 	Hand, HandStable,
 	Riichi, Rules,
 	ScorableHand, Score, ScoreAggregate, SeatRelative,
@@ -99,7 +98,7 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 		eprintln!("could not parse DEAD_WALL");
 		return Err(());
 	};
-	let Ok((dead_wall, dead_wall_type, _)) = Tile::parse_run_until::<U<10>>(dead_wall.as_ref(), None) else {
+	let Ok((dead_wall, dead_wall_type, _)) = Tile::parse_run_until::<10>(dead_wall.as_ref(), None) else {
 		eprintln!("could not parse DEAD_WALL");
 		return Err(());
 	};
@@ -216,7 +215,7 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 		}
 	}
 
-	if let WinningTileFrom::Tenhou = winning_tile_from && let Ok(hand) = hand.parse::<Hand<U<14>, U<0>>>() {
+	if let WinningTileFrom::Tenhou = winning_tile_from && let Ok(hand) = hand.parse::<Hand<14, 0>>() {
 		if let Some(_winning_tile) = args.next() {
 			eprintln!("WINNING_TILE cannot be specified with 14-tile tenhou hand");
 			return Err(());
@@ -408,7 +407,7 @@ fn print_best_tenhou_hand(
 	nukidora: u8,
 	riichi: Riichi,
 	winning_tile_from: WinningTileFrom,
-	hand: Hand<U<14>, U<0>>,
+	hand: Hand<14, 0>,
 ) {
 	// Arbitrarily use the first tile as the winning tile for the purpose of `ScorableHand::score()`.
 	// It can end up disagreeing with the `ScorableHand` itself, but that's fine, because `ScorableHand::score()` only uses it
