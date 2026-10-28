@@ -1,5 +1,3 @@
-use generic_array::typenum::U;
-
 use riichi::{
 	GameType,
 	HandStable,
@@ -93,7 +91,7 @@ fn main_inner(stdout: &mut impl std::io::Write, arg0: &str, mut args: impl Itera
 		eprintln!("could not parse DEAD_WALL");
 		return Err(());
 	};
-	let Ok((dead_wall, dead_wall_type, _)) = Tile::parse_run_until::<U<10>>(dead_wall.as_ref(), None) else {
+	let Ok((dead_wall, dead_wall_type, _)) = Tile::parse_run_until::<10>(dead_wall.as_ref(), None) else {
 		eprintln!("could not parse DEAD_WALL");
 		return Err(());
 	};
