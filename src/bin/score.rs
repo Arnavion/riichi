@@ -1,3 +1,10 @@
+#![feature(
+	generic_const_exprs,
+)]
+#![expect(
+	incomplete_features, // For generic_const_exprs
+)]
+
 use riichi::{
 	GameType,
 	HandStable,
