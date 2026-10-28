@@ -1,5 +1,3 @@
-use generic_array::ArrayLength;
-
 use crate::{
 	ArrayVec,
 	GameType,
@@ -379,10 +377,7 @@ impl Tile {
 	///
 	/// Returns an error if the string does not have valid syntax.
 	#[expect(clippy::result_unit_err)]
-	pub fn parse_run_until<N>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()>
-	where
-		N: ArrayLength,
-	{
+	pub fn parse_run_until<const N: usize>(s: &[u8], end: Option<u8>) -> Result<(ArrayVec<Self, N>, Option<HandMeldType>, &[u8]), ()> {
 		#[derive(Copy, Debug)]
 		#[derive_const(Clone)]
 		enum Op {
@@ -816,7 +811,7 @@ impl KanKouToiTile {
 		}
 	}
 
-	/// Construct a koutsu representative using the given four tiles.
+	/// Construct a koutsu representative using the given three tiles.
 	///
 	/// Returns `Some` if the tiles form a valid koutsu, `None` otherwise.
 	pub const fn kou(t1: Tile, t2: Tile, t3: Tile) -> Option<Self> {
@@ -833,7 +828,7 @@ impl KanKouToiTile {
 		}
 	}
 
-	/// Construct a toitsu representative using the given four tiles.
+	/// Construct a toitsu representative using the given two tiles.
 	///
 	/// Returns `Some` if the tiles form a valid toitsu, `None` otherwise.
 	pub const fn toi(t1: Tile, t2: Tile) -> Option<Self> {
