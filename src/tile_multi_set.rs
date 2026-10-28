@@ -1,8 +1,6 @@
 use crate::{
-	ADD1,
 	GameType,
 	NumberSuit, NumberTile,
-	SUB1, SUB2,
 	Tile, Tile27, Tile34, Tile34Set, Tile37,
 };
 
@@ -612,7 +610,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `None` when inserting more of a tile than should exist.
-	pub const fn insert(self, t: Tile) -> Option<Tile37CountedMultiSet<core::gca!(ADD1::<NT>)>> {
+	pub const fn insert(self, t: Tile) -> Option<Tile37CountedMultiSet<{ NT + 1 }>> {
 		let Self { mut inner } = self;
 		let inserted = inner.insert(t);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
@@ -627,7 +625,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// Removes the given tile from this set.
 	///
 	/// Returns `Some` if this tile existed in the set, `None` otherwise.
-	pub const fn remove(self, t: Tile) -> Option<Tile37CountedMultiSet<core::gca!(SUB1::<NT>)>> {
+	pub const fn remove(self, t: Tile) -> Option<Tile37CountedMultiSet<{ NT - 1 }>> {
 		let Self { mut inner } = self;
 		let removed = inner.remove(t);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
@@ -644,7 +642,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// # Safety
 	///
 	/// It is UB to call this fn with any `counts` that does not satisfy the above requirement.
-	pub(crate) unsafe fn with_two_removed_from_suit(&self, suit: NumberSuit, counts: u32) -> Tile37CountedMultiSet<core::gca!(SUB2::<NT>)> {
+	pub(crate) unsafe fn with_two_removed_from_suit(&self, suit: NumberSuit, counts: u32) -> Tile37CountedMultiSet<{ (NT - 1) - 1 }> {
 		let mut inner = self.inner.clone();
 		inner.counts[suit as usize] = counts;
 		inner.totals[suit as usize] -= 2;
