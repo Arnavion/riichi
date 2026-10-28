@@ -13,9 +13,7 @@
 	const_trait_impl,
 	const_try,
 	derive_const,
-	gca_const_items,
-	gca_min_const_items,
-	generic_const_items,
+	generic_const_exprs,
 	maybe_uninit_array_assume_init,
 	maybe_uninit_fill,
 	portable_simd,
@@ -26,7 +24,7 @@
 	coverage_attribute,
 ))]
 #![expect(
-	incomplete_features, // For gca_const_items, gca_min_const_items, generic_const_items
+	incomplete_features, // For generic_const_exprs
 )]
 
 #![no_std]
@@ -79,7 +77,8 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
-//! # #![feature(const_default, const_trait_impl)]
+//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -147,7 +146,8 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
-//! # #![feature(const_default, const_trait_impl)]
+//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -1358,21 +1358,11 @@ pub struct Tile34;
 #[derive_const(Clone)]
 pub struct Tile37;
 
-fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; core::gca!(ADD1::<N>)] {
-	let mut result = [const { core::mem::MaybeUninit::uninit() }; core::gca!(ADD1::<N>)];
+fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; N + 1] {
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; N + 1];
 	// SAFETY: N + 1 > N and `[T; _]` has the same alignment as `T`.
 	unsafe { result.as_mut_ptr().cast::<[T; N]>().write(arr); }
 	result[N].write(element);
 	// SAFETY: Appending an element to a `[; N]` initializes all elements of the resulting `[; N + 1]`.
 	unsafe { core::mem::MaybeUninit::array_assume_init(result) }
 }
-
-pub const ADD<const N1: usize, const N2: usize>: usize = N1 + N2;
-pub const ADD1<const N: usize>: usize = N + 1;
-pub const SUB1<const N: usize>: usize = N - 1;
-pub const SUB2<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<N>)>);
-pub const SUB3<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<core::gca!(SUB1::<N>)>)>);
-pub const SUB4<const N: usize>: usize = N - 4;
-pub const MELD_TILES<const N: usize>: usize = N * 3 + 2;
-pub const FOURTH_MELD_CAPACITY<const N: usize>: usize = (N + 2).min(4);
-pub const NON_ZERO<const N: usize>: bool = N != 0;

@@ -1,8 +1,6 @@
 use crate::{
-	ADD1,
 	GameType,
 	NumberTile,
-	SUB1,
 	Tile, Tile27, Tile34, Tile34Set, Tile37,
 };
 
@@ -630,7 +628,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `None` when inserting more of a tile than should exist.
-	pub const fn insert(self, t: Tile) -> Option<Tile37CountedMultiSet<core::gca!(ADD1::<NT>)>> {
+	pub const fn insert(self, t: Tile) -> Option<Tile37CountedMultiSet<{ NT + 1 }>> {
 		let Self { mut inner } = self;
 		let inserted = inner.insert(t);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
@@ -645,7 +643,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// Removes the given tile from this set.
 	///
 	/// Returns `Some` if this tile existed in the set, `None` otherwise.
-	pub const fn remove(self, t: Tile) -> Option<Tile37CountedMultiSet<core::gca!(SUB1::<NT>)>> {
+	pub const fn remove(self, t: Tile) -> Option<Tile37CountedMultiSet<{ NT - 1 }>> {
 		let Self { mut inner } = self;
 		let removed = inner.remove(t);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.

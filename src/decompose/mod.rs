@@ -1,10 +1,7 @@
 use crate::{
-	ADD1,
 	ArrayVec,
-	FOURTH_MELD_CAPACITY,
 	KouWait,
-	MELD_TILES,
-	NON_ZERO, NumberSuit, NumberTile, NumberTileClassified,
+	NumberSuit, NumberTile, NumberTileClassified,
 	ScorableHandFourthMeld, ScorableHandMeld, ScorableHandPair, ScorableHandRegularPair, ScorableHandRegularPairTag, ShunLowTileAndHasFiveRed, ShunWait,
 	Tile, Tile27Set, Tile34MultiSet, Tile34Set, Tile37CountedMultiSet, Tile37MultiSet, Tile37Set, Tile37SetIntoIter, TsumoOrRon,
 };
@@ -280,21 +277,27 @@ mod numbers {
 }
 
 #[derive(Debug)]
-pub(crate) struct Lookup<const NM: usize> {
+pub(crate) struct Lookup<const NM: usize>
+where
+	[(); NM + 1]:,
+{
 	has_more: bool,
 	// The first NM elements are melds, and the NM + 1'th element is the pair.
 	// Honor melds are stored as `meld_ptr` == `null()` and `meld_base` == the honor tile.
-	meld_ptr: [*const NumberMeld; core::gca!(ADD1::<NM>)],
-	meld_base: [Tile; core::gca!(ADD1::<NM>)],
+	meld_ptr: [*const NumberMeld; NM + 1],
+	meld_base: [Tile; NM + 1],
 	// Maps each `meld_ptr` element to the index of its source decomposition parameters in `meld_source_len` and `meld_source_i`.
-	meld_source: [u8; core::gca!(ADD1::<NM>)],
-	meld_source_len: [u8; core::gca!(ADD1::<NM>)],
-	meld_source_i: [u8; core::gca!(ADD1::<NM>)],
+	meld_source: [u8; NM + 1],
+	meld_source_len: [u8; NM + 1],
+	meld_source_i: [u8; NM + 1],
 	reds: [u8; 3],
 }
 
-impl<const NM: usize> Lookup<NM> {
-	pub(crate) fn new(ts: &Tile37CountedMultiSet<core::gca!(MELD_TILES::<NM>)>) -> Self {
+impl<const NM: usize> Lookup<NM>
+where
+	[(); NM + 1]:,
+{
+	pub(crate) fn new(ts: &Tile37CountedMultiSet<{ NM * 3 + 2 }>) -> Self {
 		// Common implementation independent of `NM` to combat monomorphization bloat.
 		fn inner(
 			ts: &Tile37MultiSet,
@@ -416,7 +419,10 @@ impl<const NM: usize> Lookup<NM> {
 }
 
 // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
-const impl<const NM: usize> Clone for Lookup<NM> {
+const impl<const NM: usize> Clone for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn clone(&self) -> Self {
 		Self {
 			has_more: self.has_more,
@@ -430,7 +436,10 @@ const impl<const NM: usize> Clone for Lookup<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for Lookup<NM> {
+const impl<const NM: usize> Default for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn default() -> Self {
 		Self {
 			has_more: false,
@@ -471,7 +480,8 @@ impl Iterator for Lookup<0> {
 
 impl<const NM: usize> Iterator for Lookup<NM>
 where
-	Assert<core::gca!(NON_ZERO::<NM>)>: IsTrue,
+	[(); NM + 1]:,
+	Assert<{ NM > 0 }>: IsTrue,
 {
 	type Item = ([ScorableHandMeld; NM], ScorableHandPair);
 
@@ -486,7 +496,7 @@ where
 		let meld_ptr = core::simd::ptr::SimdConstPtr::cast::<u8>(meld_ptr);
 		let melds_and_pair = unsafe { core::simd::Simd::gather_select_ptr(meld_ptr, is_number_meld, core::simd::Simd::splat(0)) };
 
-		let meld_base = unsafe { &*<*const [Tile; core::gca!(ADD1::<NM>)]>::cast::<[u8; core::gca!(ADD1::<NM>)]>(&raw const self.meld_base) };
+		let meld_base = unsafe { &*<*const [Tile; NM + 1]>::cast::<[u8; NM + 1]>(&raw const self.meld_base) };
 		let tiles = core::simd::Simd::from_array(*meld_base) + (melds_and_pair & core::simd::Simd::splat(!(0b1 << 7)));
 
 		let pair = {
@@ -508,7 +518,7 @@ where
 			// TODO(rustup): Use `core::simd` once `Mask` stops sucking on RISC-V.
 			all(target_arch = "riscv64", target_feature = "v") => unsafe {
 				let to_increment: isize;
-				let mut meld_source_delta = core::simd::Simd::<i8, core::gca!(ADD1::<NM>)>::splat(0);
+				let mut meld_source_delta = core::simd::Simd::<i8, { NM + 1 }>::splat(0);
 
 				core::arch::asm!(
 					"vsetivli zero, {len}, e8, m1, ta, ma",
@@ -614,6 +624,7 @@ where
 
 impl<const NM: usize> ExactSizeIterator for Lookup<NM>
 where
+	[(); NM + 1]:,
 	Self: Iterator,
 {
 	fn len(&self) -> usize {
@@ -631,28 +642,46 @@ where
 
 impl<const NM: usize> core::iter::FusedIterator for Lookup<NM>
 where
+	[(); NM + 1]:,
 	Self: Iterator,
 {}
 
 unsafe impl<const NM: usize> core::iter::TrustedLen for Lookup<NM>
 where
+	[(); NM + 1]:,
 	Self: Iterator,
 {}
 
-unsafe impl<const NM: usize> Send for Lookup<NM> {}
+unsafe impl<const NM: usize> Send for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
-unsafe impl<const NM: usize> Sync for Lookup<NM> {}
+unsafe impl<const NM: usize> Sync for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
 #[derive(Clone, Debug)]
-pub(crate) struct LookupForNewTile<const NM: usize> {
-	current: core::array::IntoIter<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair), core::gca!(FOURTH_MELD_CAPACITY::<NM>)>,
-	lookup: Lookup<core::gca!(ADD1::<NM>)>,
+pub(crate) struct LookupForNewTile<const NM: usize>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+	[(); (NM + 2).min(4)]:,
+{
+	current: core::array::IntoIter<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair), { (NM + 2).min(4) }>,
+	lookup: Lookup<{ NM + 1 }>,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 }
 
-impl<const NM: usize> LookupForNewTile<NM> {
-	pub(crate) const fn new(lookup: Lookup<core::gca!(ADD1::<NM>)>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+impl<const NM: usize> LookupForNewTile<NM>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+	[(); (NM + 2).min(4)]:,
+{
+	pub(crate) const fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			// TODO(rustup): Use `Default::default()` when `core::array::IntoIter: const Default`.
 			current: core::array::IntoIter::empty(),
@@ -663,7 +692,12 @@ impl<const NM: usize> LookupForNewTile<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for LookupForNewTile<NM> {
+const impl<const NM: usize> Default for LookupForNewTile<NM>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+	[(); (NM + 2).min(4)]:,
+{
 	fn default() -> Self {
 		Self {
 			// TODO(rustup): Use `Default::default()` when `core::array::IntoIter: const Default`.
@@ -677,7 +711,10 @@ const impl<const NM: usize> Default for LookupForNewTile<NM> {
 
 impl<const NM: usize> Iterator for LookupForNewTile<NM>
 where
-	Assert<core::gca!(NON_ZERO::<core::gca!(ADD1::<NM>)>)>: IsTrue,
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+	[(); (NM + 2).min(4)]:,
+	Assert<{ NM + 1 > 0 }>: IsTrue,
 {
 	type Item = ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair);
 
@@ -701,6 +738,9 @@ where
 
 impl<const NM: usize> core::iter::FusedIterator for LookupForNewTile<NM>
 where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+	[(); (NM + 2).min(4)]:,
 	Self: Iterator,
 {}
 
@@ -945,12 +985,12 @@ trait IsTrue {}
 impl IsTrue for Assert<true> {}
 
 fn extract_fourth_meld<const NM: usize>(
-	ms: [ScorableHandMeld; core::gca!(ADD1::<NM>)],
+	ms: [ScorableHandMeld; NM + 1],
 	pair: ScorableHandPair,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 	reds: [u8; 3],
-) -> core::array::IntoIter<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair), core::gca!(FOURTH_MELD_CAPACITY::<NM>)> {
+) -> core::array::IntoIter<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair), { (NM + 2).min(4) }> {
 	const ONES: Tile27Set = t27set![1m, 1p, 1s];
 	const SEVENS: Tile27Set = t27set![7m, 7p, 7s];
 
@@ -1037,7 +1077,7 @@ fn extract_fourth_meld<const NM: usize>(
 /// # Safety
 ///
 /// `ts_discard` must be within the bounds of `ts`.
-unsafe fn except<T, const N: usize>(ts: &[T; core::gca!(ADD1::<N>)], ts_discard: usize) -> [T; N]
+unsafe fn except<T, const N: usize>(ts: &[T; N + 1], ts_discard: usize) -> [T; N]
 where
 	T: Clone,
 {
@@ -1244,7 +1284,10 @@ mod tests {
 	fn eq_ignore_red<const NM: usize>(
 		(mut ms1, mut md1, p1): ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair),
 		(mut ms2, mut md2, p2): ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair),
-	) -> bool {
+	) -> bool
+	where
+		[(); NM + 1]:,
+	{
 		fn count_reds_meld(count: &mut usize, m: ScorableHandMeld) {
 			match m {
 				ScorableHandMeld::Ankan(t!(0s)) |
@@ -1336,6 +1379,7 @@ mod tests {
 	fn append_and_sort<T, const N: usize>(arr: &mut [T; N], element: &mut T)
 	where
 		T: Copy + Ord,
+		[(); N + 1]:,
 	{
 		let mut arr_ = append(*arr, *element);
 		arr_.sort_unstable();
