@@ -1,8 +1,6 @@
 use crate::{
-	ADD1,
 	GameType,
 	NumberSuit, NumberTile,
-	SUB1,
 	Tile, Tile27, Tile34, Tile34Set, Tile37,
 };
 
@@ -139,7 +137,10 @@ where
 		result
 	}
 
-	pub fn is_subset_of(&self, other: &Self) -> bool {
+	pub fn is_subset_of(&self, other: &Self) -> bool
+	where
+		[(); TKind::NUM_TILES_PER_NUMBER_SUIT]:,
+	{
 		for i in 0..(3 + usize::from(TKind::HAS_HONOR_SUIT)) {
 			match self.totals[i].cmp(&other.totals[i]) {
 				core::cmp::Ordering::Less => {
@@ -151,7 +152,7 @@ where
 					}
 
 					if i < 3 {
-						let self_counts = split_counts::<core::gca!(TKind::NUM_TILES_PER_NUMBER_SUIT)>(self.counts[i]);
+						let self_counts = split_counts::<{ TKind::NUM_TILES_PER_NUMBER_SUIT }>(self.counts[i]);
 						let other_counts = split_counts(other.counts[i]);
 						if core::simd::cmp::SimdPartialOrd::simd_gt(self_counts, other_counts).any() {
 							core::hint::cold_path();
@@ -716,7 +717,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// Inserts the given tile into this set.
 	///
 	/// Returns `None` when inserting more of a tile than should exist.
-	pub const fn insert(self, tile: Tile) -> Option<Tile37CountedMultiSet<core::gca!(ADD1::<NT>)>> {
+	pub const fn insert(self, tile: Tile) -> Option<Tile37CountedMultiSet<{ NT + 1 }>> {
 		let Self { mut inner } = self;
 		let inserted = inner.insert(tile);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.
@@ -731,7 +732,7 @@ impl<const NT: usize> Tile37CountedMultiSet<NT> {
 	/// Removes the given tile from this set.
 	///
 	/// Returns `Some` if this tile existed in the set, `None` otherwise.
-	pub const fn remove(self, tile: Tile) -> Option<Tile37CountedMultiSet<core::gca!(SUB1::<NT>)>> {
+	pub const fn remove(self, tile: Tile) -> Option<Tile37CountedMultiSet<{ NT - 1 }>> {
 		let Self { mut inner } = self;
 		let removed = inner.remove(tile);
 		// TODO(rustup): Use `bool::then_some` when that becomes `const fn`.

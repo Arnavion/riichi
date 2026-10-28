@@ -1,6 +1,4 @@
 use crate::{
-	ADD1,
-	COMPLETE_HAND_TILES,
 	extract_bits32,
 	KanKouToiTile, KouWait,
 	NumberTile,
@@ -160,22 +158,28 @@ static HONOR_MELD: NumberMeld = NumberMeld::K1;
 mod numbers;
 
 #[derive(Debug)]
-pub(crate) struct Lookup<const NM: usize> {
+pub(crate) struct Lookup<const NM: usize>
+where
+	[(); NM + 1]:,
+{
 	has_more: bool,
 	// The first NM elements are melds, and the NM + 1'th element is the pair.
 	// Honor melds / pair are stored as `meld_ptr` == `&HONOR_MELD` (which has value 0) and `meld_base` == the honor tile.
 	// This way, `meld_ptr` holds offsets from `meld_base` to the real meld / pair representative tile regardless of whether it's a number or honor meld / pair.
-	meld_ptr: [*const NumberMeld; core::gca!(ADD1::<NM>)],
-	meld_base: [Tile; core::gca!(ADD1::<NM>)],
+	meld_ptr: [*const NumberMeld; NM + 1],
+	meld_base: [Tile; NM + 1],
 	// Maps each `meld_ptr` element to the index of its source decomposition parameters in `meld_source_len` and `meld_source_i`.
-	meld_source: [u8; core::gca!(ADD1::<NM>)],
-	meld_source_len: [u8; core::gca!(ADD1::<NM>)],
-	meld_source_i: [u8; core::gca!(ADD1::<NM>)],
+	meld_source: [u8; NM + 1],
+	meld_source_len: [u8; NM + 1],
+	meld_source_i: [u8; NM + 1],
 	reds: [u8; 3],
 }
 
-impl<const NM: usize> Lookup<NM> {
-	pub(crate) fn new(ts: &Tile37CountedMultiSet<core::gca!(COMPLETE_HAND_TILES::<NM>)>) -> Self {
+impl<const NM: usize> Lookup<NM>
+where
+	[(); NM + 1]:,
+{
+	pub(crate) fn new(ts: &Tile37CountedMultiSet<{ NM * 3 + 2 }>) -> Self {
 		// Common implementation independent of `NM` to combat monomorphization bloat.
 		fn inner(
 			ts: &Tile37MultiSet,
@@ -307,7 +311,7 @@ impl<const NM: usize> Lookup<NM> {
 		let meld_ptr = core::simd::ptr::SimdConstPtr::cast::<u8>(meld_ptr);
 		let melds_and_pair = unsafe { core::simd::Simd::gather_ptr(meld_ptr) };
 
-		let meld_base = unsafe { &*<*const [Tile; core::gca!(ADD1::<NM>)]>::cast::<[u8; core::gca!(ADD1::<NM>)]>(&raw const self.meld_base) };
+		let meld_base = unsafe { &*<*const [Tile; NM + 1]>::cast::<[u8; NM + 1]>(&raw const self.meld_base) };
 		let tiles = core::simd::Simd::from_array(*meld_base) + (melds_and_pair & core::simd::Simd::splat(!(0b1 << 7)));
 
 		let pair = {
@@ -330,7 +334,7 @@ impl<const NM: usize> Lookup<NM> {
 			// TODO(rustup): Use `core::simd` once `Mask` stops sucking on RISC-V.
 			all(target_arch = "riscv64", target_feature = "v") => unsafe {
 				let to_increment: isize;
-				let mut meld_ptr_offset = core::simd::Simd::<i8, core::gca!(ADD1::<NM>)>::splat(0);
+				let mut meld_ptr_offset = core::simd::Simd::<i8, { NM + 1 }>::splat(0);
 				let meld_ptr_offset_raw: u64;
 
 				core::arch::asm!(
@@ -456,7 +460,10 @@ impl<const NM: usize> Lookup<NM> {
 }
 
 // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
-const impl<const NM: usize> Clone for Lookup<NM> {
+const impl<const NM: usize> Clone for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn clone(&self) -> Self {
 		Self {
 			has_more: self.has_more,
@@ -470,7 +477,10 @@ const impl<const NM: usize> Clone for Lookup<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for Lookup<NM> {
+const impl<const NM: usize> Default for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn default() -> Self {
 		Self {
 			has_more: false,
@@ -484,20 +494,34 @@ const impl<const NM: usize> Default for Lookup<NM> {
 	}
 }
 
-unsafe impl<const NM: usize> Send for Lookup<NM> {}
+unsafe impl<const NM: usize> Send for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
-unsafe impl<const NM: usize> Sync for Lookup<NM> {}
+unsafe impl<const NM: usize> Sync for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
 #[derive(Clone, Debug)]
-pub(crate) struct LookupForNewTile<const NM: usize> {
+pub(crate) struct LookupForNewTile<const NM: usize>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+{
 	current: FourthMelds<NM>,
-	lookup: Lookup<core::gca!(ADD1::<NM>)>,
+	lookup: Lookup<{ NM + 1 }>,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 }
 
-impl<const NM: usize> LookupForNewTile<NM> {
-	pub(crate) const fn new(lookup: Lookup<core::gca!(ADD1::<NM>)>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+impl<const NM: usize> LookupForNewTile<NM>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+{
+	pub(crate) const fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			current: Default::default(),
 			lookup,
@@ -523,7 +547,11 @@ impl<const NM: usize> LookupForNewTile<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for LookupForNewTile<NM> {
+const impl<const NM: usize> Default for LookupForNewTile<NM>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+{
 	fn default() -> Self {
 		Self {
 			current: Default::default(),
@@ -733,8 +761,11 @@ impl LookupForTenhou {
 }
 
 #[derive(Debug)]
-struct FourthMelds<const NM: usize> {
-	ms: core::mem::MaybeUninit<[ScorableHandMeld; core::gca!(ADD1::<NM>)]>,
+struct FourthMelds<const NM: usize>
+where
+	[(); NM + 1]:,
+{
+	ms: core::mem::MaybeUninit<[ScorableHandMeld; NM + 1]>,
 	pair: ScorableHandPair,
 	// Bit `0` is set if the pair contains the winning tile. Bit `i + 1` is set if `ms[i]` contains the winning tile.
 	has_winning_tile: u8,
@@ -743,7 +774,10 @@ struct FourthMelds<const NM: usize> {
 	reds: [u8; 3],
 }
 
-impl<const NM: usize> FourthMelds<NM> {
+impl<const NM: usize> FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	unsafe fn reset(
 		&mut self,
 		pair: ScorableHandPair,
@@ -884,7 +918,10 @@ impl<const NM: usize> FourthMelds<NM> {
 }
 
 // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
-const impl<const NM: usize> Clone for FourthMelds<NM> {
+const impl<const NM: usize> Clone for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	fn clone(&self) -> Self {
 		Self {
 			ms: self.ms,
@@ -897,7 +934,10 @@ const impl<const NM: usize> Clone for FourthMelds<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for FourthMelds<NM> {
+const impl<const NM: usize> Default for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	fn default() -> Self {
 		let t_representative = KanKouToiTile::new(t!(1m), 0);
 		let t_representative = unsafe { t_representative.unwrap_unchecked() };
@@ -915,7 +955,7 @@ const impl<const NM: usize> Default for FourthMelds<NM> {
 /// # Safety
 ///
 /// `ts_discard` must be within the bounds of `ts`.
-unsafe fn except<T, const N: usize>(ts: &[T; core::gca!(ADD1::<N>)], ts_discard: usize) -> [T; N]
+unsafe fn except<T, const N: usize>(ts: &[T; N + 1], ts_discard: usize) -> [T; N]
 where
 	T: Copy,
 {
@@ -1142,7 +1182,11 @@ mod tests {
 		]
 	}
 
-	fn collect<const NM: usize>(mut lookup: LookupForNewTile<NM>) -> std::vec::Vec<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair)> {
+	fn collect<const NM: usize>(mut lookup: LookupForNewTile<NM>) -> std::vec::Vec<([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair)>
+	where
+		[(); NM + 1]:,
+		[(); (NM + 1) + 1]:,
+	{
 		let mut result = std::vec![];
 		loop {
 			let mut ms = core::mem::MaybeUninit::uninit();
@@ -1156,7 +1200,10 @@ mod tests {
 	fn eq_ignore_red<const NM: usize>(
 		(mut ms1, mut md1, p1): ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair),
 		(mut ms2, mut md2, p2): ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair),
-	) -> bool {
+	) -> bool
+	where
+		[(); NM + 1]:,
+	{
 		fn count_reds_meld(count: &mut usize, m: ScorableHandMeld) {
 			match m {
 				ScorableHandMeld::Ankan(t) |
@@ -1258,6 +1305,7 @@ mod tests {
 	fn append_and_sort<T, const N: usize>(arr: &mut [T; N], element: &mut T)
 	where
 		T: Copy + Ord,
+		[(); N + 1]:,
 	{
 		let mut arr_ = append(*arr, *element);
 		arr_.sort_unstable();
@@ -1278,7 +1326,7 @@ mod tests {
 					let expected = ([], m4, ScorableHandRegularPair { tag: ScorableHandRegularPairTag::Antoi, inner: p });
 
 					let actual: std::vec::Vec<_> =
-						collect(LookupForNewTile::new(
+						collect(LookupForNewTile::<0>::new(
 							Lookup::<1>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()),
 							new_tile,
 							TsumoOrRon::Tsumo,
@@ -1315,7 +1363,7 @@ mod tests {
 
 						let ts = [t1, t2, t3, t4, t5, t6, t7];
 						let actual: std::vec::Vec<_> =
-							collect(LookupForNewTile::new(
+							collect(LookupForNewTile::<1>::new(
 								Lookup::<2>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()),
 								new_tile,
 								TsumoOrRon::Tsumo,
@@ -1358,7 +1406,7 @@ mod tests {
 
 							let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10];
 							let actual: std::vec::Vec<_> =
-								collect(LookupForNewTile::new(
+								collect(LookupForNewTile::<2>::new(
 									Lookup::<3>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()),
 									new_tile,
 									TsumoOrRon::Tsumo,
@@ -1409,7 +1457,7 @@ mod tests {
 
 								let ts = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13];
 								let actual: std::vec::Vec<_> =
-									collect(LookupForNewTile::new(
+									collect(LookupForNewTile::<3>::new(
 										Lookup::<4>::new(&Tile37CountedMultiSet::new(&ts).unwrap().insert(new_tile).unwrap()),
 										new_tile,
 										TsumoOrRon::Tsumo,

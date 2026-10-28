@@ -13,8 +13,7 @@
 	const_trait_impl,
 	const_try,
 	derive_const,
-	gca_const_items,
-	gca_min_const_items,
+	generic_const_exprs,
 	generic_const_items,
 	maybe_uninit_array_assume_init,
 	maybe_uninit_fill,
@@ -25,7 +24,7 @@
 	coverage_attribute,
 ))]
 #![expect(
-	incomplete_features, // For gca_const_items, gca_min_const_items, generic_const_items
+	incomplete_features, // For generic_const_exprs
 )]
 
 #![no_std]
@@ -77,7 +76,8 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
-//! # #![feature(const_default, const_trait_impl)]
+//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -147,7 +147,8 @@
 //!
 //! ```rust
 //! # #![deny(unused)]
-//! # #![feature(const_default, const_trait_impl)]
+//! # #![feature(const_default, const_trait_impl, generic_const_exprs)]
+//! # #![expect(incomplete_features)]
 //! #
 //! # use riichi::{
 //! #     Fu,
@@ -1359,14 +1360,6 @@ pub struct Tile34;
 #[derive_const(Clone)]
 pub struct Tile37;
 
-pub const ADD1<const N: usize>: usize = N + 1;
-pub const SUB1<const N: usize>: usize = N - 1;
-pub const SUB2<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<N>)>);
-pub const SUB3<const N: usize>: usize = core::gca!(SUB1::<core::gca!(SUB1::<core::gca!(SUB1::<N>)>)>);
-pub const SUB4<const N: usize>: usize = N - 4;
-pub const NON_ZERO<const N: usize>: bool = N != 0;
-pub const COMPLETE_HAND_TILES<const NT: usize>: usize = NT * 3 + 2;
-
 // TODO(rustup): Replace this with `uN::extract_bits` if it starts generating as efficient code as this.
 macro_rules! make_extract_bits {
 	($(fn $name:ident ($ty:ty) { $x86_64_intrinsic:path })*) => {
@@ -1375,22 +1368,26 @@ macro_rules! make_extract_bits {
 			#[doc = concat!("Equivalent to [`", stringify!($ty), "::extract_bits`] but requires that the bits to be extracted are the `WIDTH` contiguous bits at indices")]
 			/// `START`, `START + REPEAT`, `START + 2 * REPEAT`, ... `START + (N - 1) * REPEAT`, and all other bits are `0`.
 			fn $name<const START: u8, const WIDTH: u8, const REPEAT: u8, const N: u8>(x: $ty) -> $ty {
-				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS)); }
+				const fn mask(start: u8, width: u8, repeat: u8, n: u8) -> $ty {
+					let group: $ty = if u32::from(width) >= <$ty>::BITS { <$ty>::MAX } else { (0b1 << width) - 1 };
+					let mut mask = 0;
+					let mut i = 0;
+					while i < n {
+						mask |= group << (i * repeat);
+						i += 1;
+					}
+					mask << start
+				}
+
+				const ASSERT_IS_VALID<const START: u8, const WIDTH: u8, const REPEAT: u8, const N: u8>: () = assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS));
+
+				() = ASSERT_IS_VALID::<START, WIDTH, REPEAT, N>;
 
 				if N == 0 {
 					return x;
 				}
 
-				let mask: $ty = const {
-					let group: $ty = if u32::from(WIDTH) >= <$ty>::BITS { <$ty>::MAX } else { (0b1 << WIDTH) - 1 };
-					let mut mask = 0;
-					let mut i = 0;
-					while i < N {
-						mask |= group << (i * REPEAT);
-						i += 1;
-					}
-					mask << START
-				};
+				let mask: $ty = const { mask(START, WIDTH, REPEAT, N) };
 
 				unsafe { $x86_64_intrinsic(x, mask) }
 			}
@@ -1425,6 +1422,8 @@ macro_rules! make_extract_bits {
 				//                       masked_unshifted = x & 0b000_011_000_011         = 0b000_0cd_000_0gh
 				//      masked_shifted | masked_unshifted = 0b00a_bcd_00e_fgh
 
+				const MAX_STEPS: usize = <$ty>::BITS.ilog2() as usize;
+
 				const MASK_BEFORE_SHIFTING<const WIDTH: u8, const REPEAT: u8>: bool = 2 * WIDTH > REPEAT;
 
 				const NUM_STEPS<const WIDTH: u8, const REPEAT: u8, const N: u8>: usize =
@@ -1435,7 +1434,7 @@ macro_rules! make_extract_bits {
 						0
 					};
 
-				const MASKS<const WIDTH: u8, const REPEAT: u8, const N: u8>: [$ty; core::gca!(NUM_STEPS::<WIDTH, REPEAT, N>)] = {
+				const MASKS<const WIDTH: u8, const REPEAT: u8, const N: u8>: [$ty; MAX_STEPS] = {
 					let mut masks = [0; _];
 					let mut i = 0;
 					while i < NUM_STEPS::<WIDTH, REPEAT, N> {
@@ -1453,7 +1452,9 @@ macro_rules! make_extract_bits {
 					masks
 				};
 
-				const { assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS)); }
+				const ASSERT_IS_VALID<const START: u8, const WIDTH: u8, const REPEAT: u8, const N: u8>: () = assert!(N == 0 || (WIDTH > 0 && WIDTH <= REPEAT && u32::from(START) + u32::from(N - 1) * u32::from(REPEAT) + u32::from(WIDTH) <= <$ty>::BITS));
+
+				() = ASSERT_IS_VALID::<START, WIDTH, REPEAT, N>;
 
 				if N == 0 {
 					return x;
@@ -1486,8 +1487,8 @@ make_extract_bits! {
 	fn extract_bits64(u64) { core::arch::x86_64::_pext_u64 }
 }
 
-fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; core::gca!(ADD1::<N>)] {
-	let mut result = [const { core::mem::MaybeUninit::uninit() }; core::gca!(ADD1::<N>)];
+fn append<T, const N: usize>(arr: [T; N], element: T) -> [T; N + 1] {
+	let mut result = [const { core::mem::MaybeUninit::uninit() }; N + 1];
 	// SAFETY: N + 1 > N and `[T; _]` has the same alignment as `T`.
 	unsafe { result.as_mut_ptr().cast::<[T; N]>().write(arr); }
 	result[N].write(element);

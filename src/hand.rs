@@ -1,11 +1,11 @@
 use crate::{
-	ADD1, append, ArrayVec,
+	append, ArrayVec,
 	extract_bits32,
 	HandMeldType,
 	KanKouToiTile,
 	Number, NumberSuit, NumberTile, NumberTileClassified,
 	ScorableHand, ScorableHandChiitoi, ScorableHandFourthMeld, ScorableHandKokushiMusou, ScorableHandMeld, ScorableHandPair, ScorableHandRegular,
-	ShunLowTile, ShunTile, SortingNetwork, SUB1, SUB2, SUB3, SUB4,
+	ShunLowTile, ShunTile, SortingNetwork,
 	Tile,
 	Tile34MultiSet, Tile34Set, Tile34SetIntoIter,
 	Tile37CountedMultiSet, Tile37MultiSet, Tile37Set,
@@ -101,7 +101,7 @@ where
 	HandStable: From<Self>,
 {
 	/// Draw the given tile into this stable hand to form a tentative hand.
-	pub fn draw(self, new_tile: Tile) -> Option<Hand<core::gca!(ADD1::<NT>), NM>> {
+	pub fn draw(self, new_tile: Tile) -> Option<Hand<{ NT + 1 }, NM>> {
 		let Self(ts, ms) = self;
 		let ts = ts.insert(new_tile)?;
 		Some(Hand(ts, ms))
@@ -110,7 +110,7 @@ where
 	/// Find a possible daiminkan (quad via kan call on a triplet held in the hand) using the given new tile.
 	///
 	/// Returns the `Hand<{ NT - 3 }, NM + 1 }>` that would result from this call, if any.
-	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<core::gca!(SUB3::<NT>), core::gca!(ADD1::<NM>)>> {
+	pub fn find_daiminkan(self, new_tile: Tile) -> Option<Hand<{ ((NT - 1) - 1) - 1 }, { NM + 1 }>> {
 		let Self(ts, ms) = self;
 
 		let (ts, m) = find_daiminkan(ts.into(), new_tile)?;
@@ -127,14 +127,20 @@ where
 	/// Find all possible minkous (triplet via pon call) using the given new tile.
 	///
 	/// Returns an [`Iterator`] of all possible hands that would result from this call.
-	pub fn find_minkous(self, new_tile: Tile) -> Minkous<NT, NM> {
+	pub fn find_minkous(self, new_tile: Tile) -> Minkous<NT, NM>
+	where
+		[(); (NT - 1) - 1]:,
+	{
 		Minkous::new(self, new_tile)
 	}
 
 	/// Find all possible minjuns (sequence via chii call) using the given new tile.
 	///
 	/// Returns an [`Iterator`] of all possible hands that would result from this call.
-	pub fn find_minjuns(self, new_tile: NumberTile) -> Minjuns<NT, NM> {
+	pub fn find_minjuns(self, new_tile: NumberTile) -> Minjuns<NT, NM>
+	where
+		[(); (NT - 1) - 1]:,
+	{
 		Minjuns::new(self, new_tile)
 	}
 }
@@ -147,7 +153,7 @@ where
 	///
 	/// Returns the `Hand<{ NT - 1 }, NM>` resulting from the discard of that tile.
 	/// If the given tile is not present in this hand, then this function returns `None`.
-	pub fn discard(self, tile: Tile) -> Option<Hand<core::gca!(SUB1::<NT>), NM>> {
+	pub fn discard(self, tile: Tile) -> Option<Hand<{ NT - 1 }, NM>> {
 		let Self(ts, ms) = self;
 		let ts = ts.remove(tile)?;
 		Some(Hand(ts, ms))
@@ -1292,8 +1298,12 @@ const impl<const NT: usize, const NM: usize> Clone for Ankans<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> Iterator for Ankans<NT, NM> {
-	type Item = Hand<core::gca!(SUB4::<NT>), core::gca!(ADD1::<NM>)>;
+impl<const NT: usize, const NM: usize> Iterator for Ankans<NT, NM>
+where
+	[(); NT - 4]:,
+	[(); NM + 1]:,
+{
+	type Item = Hand<{ NT - 4 }, { NM + 1 }>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let (ts, m) = self.inner.next()?;
@@ -1312,7 +1322,11 @@ impl<const NT: usize, const NM: usize> Iterator for Ankans<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> DoubleEndedIterator for Ankans<NT, NM> {
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Ankans<NT, NM>
+where
+	[(); NT - 4]:,
+	[(); NM + 1]:,
+{
 	fn next_back(&mut self) -> Option<Self::Item> {
 		let (ts, m) = self.inner.next_back()?;
 
@@ -1326,15 +1340,24 @@ impl<const NT: usize, const NM: usize> DoubleEndedIterator for Ankans<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> ExactSizeIterator for Ankans<NT, NM> {
+impl<const NT: usize, const NM: usize> ExactSizeIterator for Ankans<NT, NM>
+where
+	Self: Iterator,
+{
 	fn len(&self) -> usize {
 		self.inner.len()
 	}
 }
 
-impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Ankans<NT, NM> {}
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Ankans<NT, NM>
+where
+	Self: Iterator,
+{}
 
-unsafe impl<const NT: usize, const NM: usize> core::iter::TrustedLen for Ankans<NT, NM> {}
+unsafe impl<const NT: usize, const NM: usize> core::iter::TrustedLen for Ankans<NT, NM>
+where
+	Self: Iterator,
+{}
 
 /// An [`Iterator`] of [`HandStable`] values formed by creating an ankan in the given hand.
 #[derive(Clone, Debug)]
@@ -1466,8 +1489,11 @@ const impl<const NT: usize, const NM: usize> Clone for Shouminkans<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> Iterator for Shouminkans<NT, NM> {
-	type Item = Hand<core::gca!(SUB1::<NT>), NM>;
+impl<const NT: usize, const NM: usize> Iterator for Shouminkans<NT, NM>
+where
+	[(); NT - 1]:,
+{
+	type Item = Hand<{ NT - 1 }, NM>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		// Note: `ms` is a copy of `self.ms`, because we want to yield new hands, not mutate `self`.
@@ -1487,7 +1513,10 @@ impl<const NT: usize, const NM: usize> Iterator for Shouminkans<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Shouminkans<NT, NM> {}
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Shouminkans<NT, NM>
+where
+	[(); NT - 1]:,
+{}
 
 /// An [`Iterator`] of [`HandStable`] values formed by creating an shouminkan in the given hand.
 #[derive(Clone, Debug)]
@@ -1639,8 +1668,12 @@ impl<const NT: usize, const NM: usize> Minkous<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> Iterator for Minkous<NT, NM> {
-	type Item = Hand<core::gca!(SUB2::<NT>), core::gca!(ADD1::<NM>)>;
+impl<const NT: usize, const NM: usize> Iterator for Minkous<NT, NM>
+where
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
+{
+	type Item = Hand<{ (NT - 1) - 1 }, { NM + 1 }>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let (ts, m) = self.inner.next()?;
@@ -1659,7 +1692,11 @@ impl<const NT: usize, const NM: usize> Iterator for Minkous<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minkous<NT, NM> {
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minkous<NT, NM>
+where
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
+{
 	fn next_back(&mut self) -> Option<Self::Item> {
 		let (ts, m) = self.inner.next_back()?;
 
@@ -1673,15 +1710,24 @@ impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minkous<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> ExactSizeIterator for Minkous<NT, NM> {
+impl<const NT: usize, const NM: usize> ExactSizeIterator for Minkous<NT, NM>
+where
+	Self: Iterator,
+{
 	fn len(&self) -> usize {
 		self.inner.len()
 	}
 }
 
-impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minkous<NT, NM> {}
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minkous<NT, NM>
+where
+	Self: Iterator,
+{}
 
-unsafe impl<const NT: usize, const NM: usize> core::iter::TrustedLen for Minkous<NT, NM> {}
+unsafe impl<const NT: usize, const NM: usize> core::iter::TrustedLen for Minkous<NT, NM>
+where
+	Self: Iterator,
+{}
 
 /// An [`Iterator`] of [`HandTentative`] values formed by creating a minkou in the given hand using the given new tile.
 #[derive(Clone, Debug)]
@@ -1970,8 +2016,12 @@ impl<const NT: usize, const NM: usize> Minjuns<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> Iterator for Minjuns<NT, NM> {
-	type Item = (Hand<core::gca!(SUB2::<NT>), core::gca!(ADD1::<NM>)>, Option<NumberTile>);
+impl<const NT: usize, const NM: usize> Iterator for Minjuns<NT, NM>
+where
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
+{
+	type Item = (Hand<{ (NT - 1) - 1 }, { NM + 1 }>, Option<NumberTile>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let (ts, m, cannot_discard) = self.inner.next()?;
@@ -1990,7 +2040,11 @@ impl<const NT: usize, const NM: usize> Iterator for Minjuns<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minjuns<NT, NM> {
+impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minjuns<NT, NM>
+where
+	[(); (NT - 1) - 1]:,
+	[(); NM + 1]:,
+{
 	fn next_back(&mut self) -> Option<Self::Item> {
 		let (ts, m, cannot_discard) = self.inner.next_back()?;
 
@@ -2004,15 +2058,24 @@ impl<const NT: usize, const NM: usize> DoubleEndedIterator for Minjuns<NT, NM> {
 	}
 }
 
-impl<const NT: usize, const NM: usize> ExactSizeIterator for Minjuns<NT, NM> {
+impl<const NT: usize, const NM: usize> ExactSizeIterator for Minjuns<NT, NM>
+where
+	Self: Iterator,
+{
 	fn len(&self) -> usize {
 		self.inner.len()
 	}
 }
 
-impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minjuns<NT, NM> {}
+impl<const NT: usize, const NM: usize> core::iter::FusedIterator for Minjuns<NT, NM>
+where
+	Self: Iterator,
+{}
 
-unsafe impl<const NT: usize, const NM: usize> core::iter::TrustedLen for Minjuns<NT, NM> {}
+unsafe impl<const NT: usize, const NM: usize> core::iter::TrustedLen for Minjuns<NT, NM>
+where
+	Self: Iterator,
+{}
 
 /// An [`Iterator`] of [`HandTentative`] values formed by creating a minjun in the given hand using the given new tile.
 ///
