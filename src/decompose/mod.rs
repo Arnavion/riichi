@@ -1,9 +1,6 @@
 use crate::{
-	ADD1,
 	KouWait,
-	COMPLETE_HAND_TILES,
-	IS_TENPAI_HAND_TILES,
-	NON_ZERO, NumberTile,
+	NumberTile,
 	ScorableHandFourthMeld, ScorableHandMeld, ScorableHandPair, ScorableHandRegularPair, ScorableHandRegularPairTag, ShunLowTileAndHasFiveRed, ShunWait,
 	Tile, Tile27Set, Tile34MultiSet, Tile34Set, Tile37CountedMultiSet, Tile37MultiSet, Tile37Set, Tile37SetIntoIter, TsumoOrRon,
 };
@@ -400,22 +397,28 @@ mod numbers {
 }
 
 #[derive(Debug)]
-pub(crate) struct Lookup<const NM: usize> {
+pub(crate) struct Lookup<const NM: usize>
+where
+	[(); NM + 1]:,
+{
 	has_more: bool,
 	// The first NM elements are melds, and the NM + 1'th element is the pair.
 	// Honor melds / pair are stored as `meld_ptr` == `&HONOR_MELD` (which has value 0) and `meld_base` == the honor tile.
 	// This way, `meld_ptr` holds offsets from `meld_base` to the real meld / pair representative tile regardless of whether it's a number or honor meld / pair.
-	meld_ptr: [*const NumberMeld; core::gca!(ADD1::<NM>)],
-	meld_base: [Tile; core::gca!(ADD1::<NM>)],
+	meld_ptr: [*const NumberMeld; NM + 1],
+	meld_base: [Tile; NM + 1],
 	// Maps each `meld_ptr` element to the index of its source decomposition parameters in `meld_source_len` and `meld_source_i`.
-	meld_source: [u8; core::gca!(ADD1::<NM>)],
-	meld_source_len: [u8; core::gca!(ADD1::<NM>)],
-	meld_source_i: [u8; core::gca!(ADD1::<NM>)],
+	meld_source: [u8; NM + 1],
+	meld_source_len: [u8; NM + 1],
+	meld_source_i: [u8; NM + 1],
 	reds: [u8; 3],
 }
 
-impl<const NM: usize> Lookup<NM> {
-	pub(crate) fn new(ts: &Tile37CountedMultiSet<core::gca!(COMPLETE_HAND_TILES::<NM>)>) -> Self {
+impl<const NM: usize> Lookup<NM>
+where
+	[(); NM + 1]:,
+{
+	pub(crate) fn new(ts: &Tile37CountedMultiSet<{ NM * 3 + 2 }>) -> Self {
 		// Common implementation independent of `NM` to combat monomorphization bloat.
 		fn inner(
 			ts: &Tile37MultiSet,
@@ -540,7 +543,10 @@ impl<const NM: usize> Lookup<NM> {
 }
 
 // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
-const impl<const NM: usize> Clone for Lookup<NM> {
+const impl<const NM: usize> Clone for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn clone(&self) -> Self {
 		Self {
 			has_more: self.has_more,
@@ -554,7 +560,10 @@ const impl<const NM: usize> Clone for Lookup<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for Lookup<NM> {
+const impl<const NM: usize> Default for Lookup<NM>
+where
+	[(); NM + 1]:,
+{
 	fn default() -> Self {
 		Self {
 			has_more: false,
@@ -594,7 +603,8 @@ impl Iterator for Lookup<0> {
 
 impl<const NM: usize> Iterator for Lookup<NM>
 where
-	Assert<core::gca!(NON_ZERO::<NM>)>: IsTrue,
+	[(); NM + 1]:,
+	Assert<{ NM > 0 }>: IsTrue,
 {
 	type Item = ([ScorableHandMeld; NM], ScorableHandPair);
 
@@ -607,7 +617,7 @@ where
 		let meld_ptr = core::simd::ptr::SimdConstPtr::cast::<u8>(meld_ptr);
 		let melds_and_pair = unsafe { core::simd::Simd::gather_ptr(meld_ptr) };
 
-		let meld_base = unsafe { &*<*const [Tile; core::gca!(ADD1::<NM>)]>::cast::<[u8; core::gca!(ADD1::<NM>)]>(&raw const self.meld_base) };
+		let meld_base = unsafe { &*<*const [Tile; NM + 1]>::cast::<[u8; NM + 1]>(&raw const self.meld_base) };
 		let tiles = core::simd::Simd::from_array(*meld_base) + (melds_and_pair & core::simd::Simd::splat(!(0b1 << 7)));
 
 		let pair = {
@@ -629,7 +639,7 @@ where
 			// TODO(rustup): Use `core::simd` once `Mask` stops sucking on RISC-V.
 			all(target_arch = "riscv64", target_feature = "v") => unsafe {
 				let to_increment: isize;
-				let mut meld_ptr_offset = core::simd::Simd::<i8, core::gca!(ADD1::<NM>)>::splat(0);
+				let mut meld_ptr_offset = core::simd::Simd::<i8, { NM + 1 }>::splat(0);
 				let meld_ptr_offset_raw: u64;
 
 				core::arch::asm!(
@@ -749,6 +759,7 @@ where
 
 impl<const NM: usize> ExactSizeIterator for Lookup<NM>
 where
+	[(); NM + 1]:,
 	Self: Iterator,
 {
 	fn len(&self) -> usize {
@@ -766,28 +777,44 @@ where
 
 impl<const NM: usize> core::iter::FusedIterator for Lookup<NM>
 where
+	[(); NM + 1]:,
 	Self: Iterator,
 {}
 
 unsafe impl<const NM: usize> core::iter::TrustedLen for Lookup<NM>
 where
+	[(); NM + 1]:,
 	Self: Iterator,
 {}
 
-unsafe impl<const NM: usize> Send for Lookup<NM> {}
+unsafe impl<const NM: usize> Send for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
-unsafe impl<const NM: usize> Sync for Lookup<NM> {}
+unsafe impl<const NM: usize> Sync for Lookup<NM>
+where
+	[(); NM + 1]:,
+{}
 
 #[derive(Clone, Debug)]
-pub(crate) struct LookupForNewTile<const NM: usize> {
+pub(crate) struct LookupForNewTile<const NM: usize>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+{
 	current: FourthMelds<NM>,
-	lookup: Lookup<core::gca!(ADD1::<NM>)>,
+	lookup: Lookup<{ NM + 1 }>,
 	new_tile: Tile,
 	tsumo_or_ron: TsumoOrRon,
 }
 
-impl<const NM: usize> LookupForNewTile<NM> {
-	pub(crate) const fn new(lookup: Lookup<core::gca!(ADD1::<NM>)>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
+impl<const NM: usize> LookupForNewTile<NM>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+{
+	pub(crate) const fn new(lookup: Lookup<{ NM + 1 }>, new_tile: Tile, tsumo_or_ron: TsumoOrRon) -> Self {
 		Self {
 			current: Default::default(),
 			lookup,
@@ -797,7 +824,11 @@ impl<const NM: usize> LookupForNewTile<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for LookupForNewTile<NM> {
+const impl<const NM: usize> Default for LookupForNewTile<NM>
+where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+{
 	fn default() -> Self {
 		Self {
 			current: Default::default(),
@@ -810,7 +841,9 @@ const impl<const NM: usize> Default for LookupForNewTile<NM> {
 
 impl<const NM: usize> Iterator for LookupForNewTile<NM>
 where
-	Assert<core::gca!(NON_ZERO::<core::gca!(ADD1::<NM>)>)>: IsTrue,
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
+	Assert<{ NM + 1 > 0 }>: IsTrue,
 {
 	type Item = ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair);
 
@@ -834,12 +867,14 @@ where
 
 impl<const NM: usize> core::iter::FusedIterator for LookupForNewTile<NM>
 where
+	[(); NM + 1]:,
+	[(); (NM + 1) + 1]:,
 	Self: Iterator,
 {}
 
 pub fn lookup_tenpai<const NT: usize>(ts: Tile37CountedMultiSet<NT>) -> Tile37Set
 where
-	Assert<core::gca!(IS_TENPAI_HAND_TILES::<NT>)>: IsTrue,
+	Assert<{ (NT % 3) == 1 }>: IsTrue,
 {
 	fn inner(ts: &Tile37MultiSet) -> Tile37Set {
 		const MAN: Tile34Set = t34set![1m, 2m, 3m, 4m, 5m, 6m, 7m, 8m, 9m];
@@ -1039,7 +1074,7 @@ impl Iterator for LookupForTenhou {
 						let new_tile = unsafe { new_tile.unwrap_unchecked() };
 						(ms, pair, new_tile)
 					};
-				self.current_a = FourthMelds::new(*ms, *pair, new_tile, TsumoOrRon::Tsumo, self.lookup.reds);
+				self.current_a = FourthMelds::<3>::new(*ms, *pair, new_tile, TsumoOrRon::Tsumo, self.lookup.reds);
 				continue;
 			};
 			break Some((ms, md, pair));
@@ -1059,8 +1094,11 @@ pub(crate) trait IsTrue {}
 impl IsTrue for Assert<true> {}
 
 #[derive(Debug)]
-struct FourthMelds<const NM: usize> {
-	ms: [ScorableHandMeld; core::gca!(ADD1::<NM>)],
+struct FourthMelds<const NM: usize>
+where
+	[(); NM + 1]:,
+{
+	ms: [ScorableHandMeld; NM + 1],
 	pair: ScorableHandPair,
 	// Bit `0` is set if the pair contains the winning tile. Bit `i + 1` is set if `ms[i]` contains the winning tile.
 	has_winning_tile: u8,
@@ -1069,9 +1107,12 @@ struct FourthMelds<const NM: usize> {
 	reds: [u8; 3],
 }
 
-impl<const NM: usize> FourthMelds<NM> {
+impl<const NM: usize> FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	fn new(
-		ms: [ScorableHandMeld; core::gca!(ADD1::<NM>)],
+		ms: [ScorableHandMeld; NM + 1],
 		pair: ScorableHandPair,
 		winning_tile: Tile,
 		tsumo_or_ron: TsumoOrRon,
@@ -1118,7 +1159,10 @@ impl<const NM: usize> FourthMelds<NM> {
 }
 
 // TODO(rustup): Replace with `#[derive_const(Clone)]` when `[T; N]: [const] Clone`
-const impl<const NM: usize> Clone for FourthMelds<NM> {
+const impl<const NM: usize> Clone for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	fn clone(&self) -> Self {
 		Self {
 			ms: self.ms,
@@ -1131,7 +1175,10 @@ const impl<const NM: usize> Clone for FourthMelds<NM> {
 	}
 }
 
-const impl<const NM: usize> Default for FourthMelds<NM> {
+const impl<const NM: usize> Default for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	fn default() -> Self {
 		Self {
 			ms: [ScorableHandMeld::Ankou(t!(1m)); _],
@@ -1144,7 +1191,10 @@ const impl<const NM: usize> Default for FourthMelds<NM> {
 	}
 }
 
-impl<const NM: usize> Iterator for FourthMelds<NM> {
+impl<const NM: usize> Iterator for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	type Item = ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair);
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -1230,20 +1280,29 @@ impl<const NM: usize> Iterator for FourthMelds<NM> {
 	}
 }
 
-impl<const NM: usize> ExactSizeIterator for FourthMelds<NM> {
+impl<const NM: usize> ExactSizeIterator for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{
 	fn len(&self) -> usize {
 		self.has_winning_tile.count_ones() as usize
 	}
 }
 
-impl<const NM: usize> core::iter::FusedIterator for FourthMelds<NM> {}
+impl<const NM: usize> core::iter::FusedIterator for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{}
 
-unsafe impl<const NM: usize> core::iter::TrustedLen for FourthMelds<NM> {}
+unsafe impl<const NM: usize> core::iter::TrustedLen for FourthMelds<NM>
+where
+	[(); NM + 1]:,
+{}
 
 /// # Safety
 ///
 /// `ts_discard` must be within the bounds of `ts`.
-unsafe fn except<T, const N: usize>(ts: &[T; core::gca!(ADD1::<N>)], ts_discard: usize) -> [T; N]
+unsafe fn except<T, const N: usize>(ts: &[T; N + 1], ts_discard: usize) -> [T; N]
 where
 	T: Copy,
 {
@@ -1458,7 +1517,10 @@ mod tests {
 	fn eq_ignore_red<const NM: usize>(
 		(mut ms1, mut md1, p1): ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair),
 		(mut ms2, mut md2, p2): ([ScorableHandMeld; NM], ScorableHandFourthMeld, ScorableHandRegularPair),
-	) -> bool {
+	) -> bool
+	where
+		[(); NM + 1]:,
+	{
 		fn count_reds_meld(count: &mut usize, m: ScorableHandMeld) {
 			match m {
 				ScorableHandMeld::Ankan(t!(0s)) |
@@ -1550,6 +1612,7 @@ mod tests {
 	fn append_and_sort<T, const N: usize>(arr: &mut [T; N], element: &mut T)
 	where
 		T: Copy + Ord,
+		[(); N + 1]:,
 	{
 		let mut arr_ = append(*arr, *element);
 		arr_.sort_unstable();
